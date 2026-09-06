@@ -103,9 +103,21 @@ extern "C" {
  * unicast address — this must match the laptop's actual current LAN IP
  * (check with `python3 -c "import socket;s=socket.socket(socket.AF_INET,
  * socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0])"`)
- * on the same Wi-Fi network as the board. Run: python3 tools/http_server.py */
-#define HTTP_SERVER_ADDRESS      IP_ADDRESS(10, 198, 244, 16)
-#define HTTP_SERVER_HOST         "10.198.244.16"   /* string form of HTTP_SERVER_ADDRESS above, for the Host: header --
+ * on the same Wi-Fi network as the board. Run: python3 tools/http_server.py
+ *
+ * This is exactly the value that went stale and caused the TLS POST to
+ * fail: mobile-hotspot Wi-Fi (Android in particular) re-randomizes its
+ * whole subnet on each activation, so an address hardcoded during one
+ * hotspot session (10.198.244.16, from an earlier 10.198.244.0/24) silently
+ * stops being the laptop once the hotspot restarts on a new subnet -- the
+ * board still joins fine and gets its own new DHCP lease (confirmed via
+ * serial.log: it got 10.26.76.121), but the TCP SYN it sends to the old,
+ * now-nonexistent address just times out with NX_NOT_CONNECTED (0x38),
+ * over and over, with nothing ever reaching the Python server. Re-check
+ * this value (and rerun tools/gen_https_cert.sh, see HTTP_SERVER_HTTPS_PORT
+ * below) every time the hotspot has been restarted since the last flash. */
+#define HTTP_SERVER_ADDRESS      IP_ADDRESS(10, 26, 76, 16)
+#define HTTP_SERVER_HOST         "10.26.76.16"   /* string form of HTTP_SERVER_ADDRESS above, for the Host: header --
                                                        nx_web_http_client_get_start() rejects a NULL host with
                                                        NX_WEB_HTTP_ERROR (0x30000) before it even opens a connection */
 #define HTTP_SERVER_PORT         8000    /* plaintext, unused now that App_HTTP_Thread_Entry posts over TLS */
