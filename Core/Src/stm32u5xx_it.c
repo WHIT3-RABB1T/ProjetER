@@ -86,7 +86,15 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  /* Diagnostic: these four fault handlers were silent while(1){} stubs --
+   * if the board ever actually crashed, the serial log would just go dead
+   * with zero trace, indistinguishable from a merely-truncated capture.
+   * A single blocking, polling printf (via __io_putchar ->
+   * HAL_UART_Transmit, not an RTOS call, so safe even if ThreadX's own
+   * state is what's corrupted) at least leaves unambiguous evidence in
+   * the log that this specific class of failure -- not a stall, not a
+   * timeout, an actual crash -- is what happened. */
+  printf("\r\n!!! HardFault_Handler !!!\r\n");
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -101,7 +109,7 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  printf("\r\n!!! MemManage_Handler !!!\r\n");
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -116,7 +124,7 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  printf("\r\n!!! BusFault_Handler !!!\r\n");
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -131,7 +139,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  printf("\r\n!!! UsageFault_Handler !!!\r\n");
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {

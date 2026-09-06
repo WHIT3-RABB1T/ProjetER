@@ -45,6 +45,7 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
 static VOID print_pool_status(const CHAR *label);
 static const CHAR *tls_client_state_name(UINT state);
 static VOID diag_heartbeat_entry(ULONG id);
+static VOID diag_stack_error_notify(TX_THREAD *thread_ptr);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -142,8 +143,14 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v4-tls-state ===\r\n");
+  printf("=== BUILD_MARKER: diag-v5-stackcheck+faulthandlers ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
+
+  /* See tx_user.h (TX_ENABLE_STACK_CHECKING) and diag_stack_error_notify
+   * above -- registered as early as possible, well before AppHTTPThread
+   * ever starts (it's TX_DONT_START until App_Main_Thread_Entry resumes
+   * it after DHCP), so any overflow in either app thread gets caught. */
+  tx_thread_stack_error_notify(diag_stack_error_notify);
 
   /* Initialize the NetX system. */
   nx_system_initialize();
@@ -248,14 +255,23 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
     return NX_NOT_ENABLED;
   }
 
-  /* Allocate the memory for HTTP client thread   */
-  if (tx_byte_allocate(byte_pool, (VOID **) &pointer,2 *  DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
+  /* Allocate the memory for HTTP client thread. Bumped 2 -> 8 *
+   * DEFAULT_MEMORY_SIZE (2048 -> 8192 bytes): this thread runs the TLS
+   * handshake through nx_web_http_client -> nx_secure_tls ->
+   * nx_crypto_rsa, a deep call chain with sizable bignum locals for the
+   * RSA modular exponentiation -- 2KB was sized for this thread's
+   * original plain UDP/HTTP work, never revisited once TLS moved onto it.
+   * TX_ENABLE_STACK_CHECKING (tx_user.h) + the notify handler below will
+   * confirm whether 2KB was ever actually overflowing; 8KB is still
+   * comfortably inside NX_APP_MEM_POOL_SIZE's budget alongside everything
+   * else drawn from the same byte pool. */
+  if (tx_byte_allocate(byte_pool, (VOID **) &pointer, 8 * DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
   {
     return TX_POOL_ERROR;
   }
 
   /* create the HTTP client thread */
-  ret = tx_thread_create(&AppHTTPThread, "App HTTP Thread", App_HTTP_Thread_Entry, 0, pointer, 2 * DEFAULT_MEMORY_SIZE,
+  ret = tx_thread_create(&AppHTTPThread, "App HTTP Thread", App_HTTP_Thread_Entry, 0, pointer, 8 * DEFAULT_MEMORY_SIZE,
                          APP_THREAD_PRIORITY, APP_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_DONT_START);
 
   if (ret != TX_SUCCESS)
@@ -321,6 +337,20 @@ static VOID ip_address_change_notify_callback(NX_IP *ip_instance, VOID *ptr)
  * very low) at the failure point confirms it's the former; free still
  * comfortably above 0 would mean NX_NO_PACKET came from somewhere other
  * than true pool exhaustion (e.g. an internal wait-budget artifact). */
+
+/* Fires from ThreadX's own scheduler when TX_ENABLE_STACK_CHECKING
+ * (tx_user.h) detects a thread has overrun its stack -- registered via
+ * tx_thread_stack_error_notify() in MX_NetXDuo_Init. If this ever prints,
+ * it's conclusive: whatever's happening is a real stack overflow, not a
+ * timeout or a protocol stall, and no amount of tuning wait_options fixes
+ * that -- the stack (or whatever's allocating from it) needs to shrink,
+ * or the thread's stack needs to grow further still. */
+static VOID diag_stack_error_notify(TX_THREAD *thread_ptr)
+{
+    printf("\r\n!!! STACK OVERFLOW in thread \"%s\" !!!\r\n\r\n",
+           thread_ptr->tx_thread_name ? thread_ptr->tx_thread_name : "?");
+}
+
 static VOID print_pool_status(const CHAR *label)
 {
     ULONG total = 0, free = 0, empty_requests = 0, empty_suspensions = 0, invalid_releases = 0;

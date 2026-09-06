@@ -144,7 +144,21 @@
    define is negated, thereby forcing the stack fill which is necessary for the stack checking
    logic.  */
 
-/*#define TX_ENABLE_STACK_CHECKING*/
+/* Enabled for diagnosis: AppHTTPThread runs the TLS handshake (including
+ * nx_crypto_rsa's modular exponentiation, called through
+ * nx_web_http_client -> nx_secure_tls -> nx_crypto_rsa, a deep call chain
+ * with sizable bignum locals) on only 2 * DEFAULT_MEMORY_SIZE = 2048 bytes
+ * of stack -- comfortably enough for the plain UDP/HTTP this thread
+ * originally did, but 2KB is genuinely tight for software RSA, and a
+ * silent stack overflow (corrupting adjacent memory rather than
+ * immediately faulting) would explain symptoms that don't fit a clean
+ * timeout: the handshake stalling at seemingly-arbitrary points, or
+ * behaving differently once the receive window got bigger (deeper/bigger
+ * buffers needed to handle a larger burst, tipping an already-marginal
+ * stack over the edge). See tx_thread_stack_error_notify() registration
+ * in MX_NetXDuo_Init. Revert once this is ruled out or the stack size is
+ * confirmed adequate. */
+#define TX_ENABLE_STACK_CHECKING
 
 /* Determine if random number is used for stack filling. By default, ThreadX uses a fixed pattern
    for stack filling. When the following is defined, ThreadX uses a random number for stack filling.
