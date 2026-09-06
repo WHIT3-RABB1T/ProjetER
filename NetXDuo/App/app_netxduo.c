@@ -580,7 +580,20 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 
     while (1)
     {
-        ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 1536);
+        /* window_size bumped 1536 -> 8192: found via `ss -i` on the server
+         * while a connection sat stuck -- mss:768, and the server had been
+         * retransmitting the same segment for 4.5 minutes (retrans:1/12,
+         * bytes_acked stuck at exactly 768 = one segment) because our
+         * 1536-byte window only ever allowed 2 segments in flight, and
+         * once the second one needed a retry, there was no window room
+         * left to make progress. ServerHello + our ~800-byte self-signed
+         * Certificate + ServerHelloDone need more than 1536 bytes of
+         * simultaneous in-flight room at 768 bytes/segment; this is the
+         * exact same class of bug as the packet-pool-too-small issue this
+         * file already documents for TLS (10 -> 32 packets) -- a value
+         * sized for plain HTTP, never revisited when TLS was layered on
+         * top. 8192 is comfortably within AppPool's ~48KB capacity. */
+        ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
         if (ret != NX_SUCCESS)
         {
             printf("HTTP client create failed: 0x%02X\r\n", ret);
