@@ -440,6 +440,8 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     ULONG       counter = 0;
     CHAR        counter_str[16];
     UINT        counter_len;
+    ULONG       t0;
+    ULONG       elapsed_ms;
 
     TX_PARAMETER_NOT_USED(thread_input);
 
@@ -477,17 +479,35 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
          * above) and then, over the now-encrypted connection, sends the
          * request line + headers (including Content-Length: counter_len
          * from the total_bytes argument below); the body itself goes out
-         * separately via put_packet. */
+         * separately via put_packet.
+         *
+         * Timeout bumped from 5s to 30s as a diagnostic: the last capture
+         * showed a real handshake in progress (ClientHello sent, the
+         * server's ~800-byte self-signed certificate received back, ACKs
+         * both ways) but the log was cut before any pass/fail line printed
+         * afterward, and we don't yet know whether it finished or actually
+         * timed out. nx_crypto_rsa.c has no yield points and does its
+         * modular exponentiation entirely in software (no PKA hardware
+         * offload wired up), so the remaining RSA-heavy steps -- verifying
+         * the server's signature, encrypting the pre-master secret with
+         * its 2048-bit public key -- can plausibly run past 5s on a
+         * Cortex-M33. This 30s ceiling plus the elapsed-time print below
+         * will tell us definitively: if it now succeeds and reports, say,
+         * 6-10s, that confirms it's a pure timeout tuning issue. If it
+         * still fails/hangs well past 5s too, the cause is something
+         * else and 5s was never actually the constraint. */
+        t0 = tx_time_get();
         ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                     HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
-                                                    counter_len, tls_setup_callback, 5 * NX_IP_PERIODIC_RATE);
+                                                    counter_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
+        elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
         if (ret != NX_SUCCESS)
         {
-            printf("POST (TLS) start failed: 0x%02X\r\n", ret);
+            printf("POST (TLS) start failed: 0x%02X after %lu ms\r\n", ret, elapsed_ms);
         }
         else
         {
-            printf("TLS handshake + HTTP headers sent ok, sending body...\r\n");
+            printf("TLS handshake + HTTP headers sent ok after %lu ms, sending body...\r\n", elapsed_ms);
             ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
                                                               5 * NX_IP_PERIODIC_RATE);
             if (ret != NX_SUCCESS)
