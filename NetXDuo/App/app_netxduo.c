@@ -143,7 +143,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v5-stackcheck+faulthandlers ===\r\n");
+  printf("=== BUILD_MARKER: diag-v6-driverlog-reverted ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* See tx_user.h (TX_ENABLE_STACK_CHECKING) and diag_stack_error_notify

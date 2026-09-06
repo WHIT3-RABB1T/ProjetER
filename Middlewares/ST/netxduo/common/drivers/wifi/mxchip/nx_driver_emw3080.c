@@ -29,13 +29,13 @@
 #define NX_DRIVER_SOURCE
 
 #if !defined(NX_DEBUG_DRIVER_SOURCE_LOG)
-/* Temporarily routed to printf (was a no-op) for diagnosing the current
- * connectivity issue -- also un-defining REMOVE_DEBUG_FUNC below so the
- * nx_driver_mx_wifi_status_to_string() helper these log lines use for
- * status transitions actually gets compiled. Revert both once Wi-Fi + the
- * TLS POST are confirmed working: restore the no-op macro and re-define
- * REMOVE_DEBUG_FUNC. */
-#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   printf(__VA_ARGS__)
+/* Reverted to the no-op: Wi-Fi join/DHCP are conclusively confirmed
+ * working, and routing this through printf (a slow blocking UART write)
+ * from inside the driver's own timing-sensitive SPI/HCI code paths is now
+ * a plausible source of new timing perturbation while investigating
+ * TCP-level (SYN/ACK) behavior -- actively counterproductive to leave on. */
+#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   /* ; */
+#define REMOVE_DEBUG_FUNC
 #endif /*NX_DEBUG_DRIVER_SOURCE_LOG*/
 
 #include "nx_driver_emw3080.h"

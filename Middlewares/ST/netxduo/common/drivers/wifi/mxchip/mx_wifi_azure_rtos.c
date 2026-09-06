@@ -5,11 +5,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-/* Temporarily routed to printf (was a no-op) for diagnosing the current
- * connectivity issue -- revert once Wi-Fi + the TLS POST are confirmed
- * working. See the matching change/comment in nx_driver_emw3080.c. */
+/* Reverted to the no-op -- see the matching comment in nx_driver_emw3080.c. */
 #if !defined(NX_DEBUG_DRIVER_SOURCE_LOG)
-#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   printf(__VA_ARGS__)
+#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   /* ; */
 #endif /*NX_DEBUG_DRIVER_SOURCE_LOG*/
 
 extern TX_THREAD *_tx_thread_current_ptr;

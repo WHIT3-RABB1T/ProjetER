@@ -59,16 +59,24 @@ int32_t mxwifi_probe(void **ll_drv_context);
 #define WIFI_PASSWORD                               "yj7qkctbtk8tcqr"
 
 /* DEBUG LOG
- * Enabled for diagnosing the current connectivity issue -- this is the same
- * mechanism that worked before on the old project (see git history: "Enable
- * mx_wifi driver debug logging (diagnostic)"). Shows the module's own view
- * of init/join/IPC traffic, independent of anything app_netxduo.c prints.
- * Re-comment these once the Wi-Fi link + TLS POST are confirmed working. */
-#define MX_WIFI_API_DEBUG
-#define MX_WIFI_IPC_DEBUG
-#define MX_WIFI_HCI_DEBUG
-#define MX_WIFI_SLIP_DEBUG
-#define MX_WIFI_IO_DEBUG
+ * Was enabled to diagnose Wi-Fi join/DHCP -- both are now conclusively
+ * confirmed working (serial.log has shown MWIFI_EVENT_STA_UP and DHCP
+ * completing cleanly many times over). Reverted: these route through
+ * NX_DEBUG_DRIVER_SOURCE_LOG -> printf, a slow blocking UART write, called
+ * from *inside* the driver's own timing-sensitive SPI/HCI code paths --
+ * exactly the class of thing the original priority-inversion bug (see
+ * APP_THREAD_PRIORITY in app_netxduo.h) was about, and every capture since
+ * enabling this has shown garbled/interleaved lines (concurrent printf
+ * callers stepping on each other over one shared blocking UART, now with
+ * the driver's own threads added to the app thread and the diagnostic
+ * heartbeat timer as concurrent callers). Now investigating TCP-level
+ * behavior (SYN/ACK timing) that this logging could plausibly be
+ * perturbing, so it's actively counterproductive to leave on. */
+/* #define MX_WIFI_API_DEBUG */
+/* #define MX_WIFI_IPC_DEBUG */
+/* #define MX_WIFI_HCI_DEBUG */
+/* #define MX_WIFI_SLIP_DEBUG */
+/* #define MX_WIFI_IO_DEBUG */
 
 
 #define MX_WIFI_PRODUCT_NAME                        ("MXCHIP-WIFI")
