@@ -42,6 +42,7 @@ static VOID App_Main_Thread_Entry(ULONG thread_input);
 static VOID App_HTTP_Thread_Entry(ULONG thread_input);
 static VOID ip_address_change_notify_callback(NX_IP *ip_instance, VOID *ptr);
 static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SESSION *tls_session);
+static VOID print_pool_status(const CHAR *label);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -142,6 +143,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   }
   printf("Packet pool created (%lu bytes, %u-byte packets)\r\n",
          (unsigned long)NX_PACKET_POOL_SIZE, (unsigned)PAYLOAD_SIZE);
+  print_pool_status("at create");
 
   /* Allocate the memory for Ip_Instance */
   if (tx_byte_allocate(byte_pool, (VOID **) &pointer,   2 * DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
@@ -271,6 +273,29 @@ static VOID ip_address_change_notify_callback(NX_IP *ip_instance, VOID *ptr)
 {
   /* release the semaphore as soon as an IP address is available */
   tx_semaphore_put(&Semaphore);
+}
+
+/* Diagnostic: dump AppPool's packet accounting. Added to directly test
+ * whether the TLS handshake stall (32.7s to a plain NX_NO_PACKET) is real
+ * packet-pool exhaustion or something else -- the code comment on
+ * NX_PACKET_POOL_SIZE already documents this exact failure once before
+ * ("observed: ... returning NX_NO_PACKET, 0x01, mid-handshake") and claims
+ * bumping to 32 packets fixed it, but we're seeing 0x01 again, so either
+ * 32 isn't actually enough for this handshake's real packet usage, or
+ * something is holding packets that should have been released. free==0 (or
+ * very low) at the failure point confirms it's the former; free still
+ * comfortably above 0 would mean NX_NO_PACKET came from somewhere other
+ * than true pool exhaustion (e.g. an internal wait-budget artifact). */
+static VOID print_pool_status(const CHAR *label)
+{
+    ULONG total = 0, free = 0, empty_requests = 0, empty_suspensions = 0, invalid_releases = 0;
+
+    if (nx_packet_pool_info_get(&AppPool, &total, &free, &empty_requests,
+                                &empty_suspensions, &invalid_releases) == NX_SUCCESS)
+    {
+        printf("[pool %s] free=%lu/%lu, empty_requests=%lu, empty_suspensions=%lu, invalid_releases=%lu\r\n",
+               label, free, total, empty_requests, empty_suspensions, invalid_releases);
+    }
 }
 
 /**
@@ -414,6 +439,7 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
     }
 
     printf("TLS session set up ok, handshake starting...\r\n");
+    print_pool_status("handshake starting");
     return(NX_SUCCESS);
 }
 
@@ -496,11 +522,13 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
          * 6-10s, that confirms it's a pure timeout tuning issue. If it
          * still fails/hangs well past 5s too, the cause is something
          * else and 5s was never actually the constraint. */
+        print_pool_status("before post_secure_start");
         t0 = tx_time_get();
         ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                     HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
                                                     counter_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
         elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
+        print_pool_status("after post_secure_start");
         if (ret != NX_SUCCESS)
         {
             printf("POST (TLS) start failed: 0x%02X after %lu ms\r\n", ret, elapsed_ms);
