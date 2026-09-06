@@ -43,6 +43,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input);
 static VOID ip_address_change_notify_callback(NX_IP *ip_instance, VOID *ptr);
 static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SESSION *tls_session);
 static VOID print_pool_status(const CHAR *label);
+static const CHAR *tls_client_state_name(UINT state);
 static VOID diag_heartbeat_entry(ULONG id);
 /* USER CODE END PM */
 
@@ -141,7 +142,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v3-heartbeat+pool ===\r\n");
+  printf("=== BUILD_MARKER: diag-v4-tls-state ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* Initialize the NetX system. */
@@ -332,6 +333,35 @@ static VOID print_pool_status(const CHAR *label)
     }
 }
 
+/* Human-readable form of NX_SECURE_TLS_SESSION's nx_secure_tls_client_state
+ * (nx_secure_tls.h) -- this is the precise diagnostic we're missing so far:
+ * TCP state alone can't tell SERVER_CERTIFICATE (received the cert, still
+ * waiting on more from the server -- a protocol-level stall, our move
+ * isn't next) apart from SERVERHELLO_DONE (server's done talking, we're
+ * the one who's supposed to compute + send ClientKeyExchange next -- a
+ * genuinely different failure mode, e.g. slow/stuck RSA). */
+static const CHAR *tls_client_state_name(UINT state)
+{
+    switch (state)
+    {
+        case NX_SECURE_TLS_CLIENT_STATE_IDLE:                return "IDLE";
+        case NX_SECURE_TLS_CLIENT_STATE_ERROR:                return "ERROR";
+        case NX_SECURE_TLS_CLIENT_STATE_ALERT_SENT:           return "ALERT_SENT";
+        case NX_SECURE_TLS_CLIENT_STATE_HELLO_REQUEST:        return "HELLO_REQUEST";
+        case NX_SECURE_TLS_CLIENT_STATE_HELLO_VERIFY:         return "HELLO_VERIFY";
+        case NX_SECURE_TLS_CLIENT_STATE_SERVERHELLO:          return "SERVERHELLO";
+        case NX_SECURE_TLS_CLIENT_STATE_SERVER_CERTIFICATE:   return "SERVER_CERTIFICATE (waiting for more from server)";
+        case NX_SECURE_TLS_CLIENT_STATE_SERVER_KEY_EXCHANGE:  return "SERVER_KEY_EXCHANGE";
+        case NX_SECURE_TLS_CLIENT_STATE_CERTIFICATE_REQUEST:  return "CERTIFICATE_REQUEST";
+        case NX_SECURE_TLS_CLIENT_STATE_SERVERHELLO_DONE:     return "SERVERHELLO_DONE (our turn: compute+send ClientKeyExchange)";
+        case NX_SECURE_TLS_CLIENT_STATE_HANDSHAKE_FINISHED:   return "HANDSHAKE_FINISHED";
+        case NX_SECURE_TLS_CLIENT_STATE_RENEGOTIATING:        return "RENEGOTIATING";
+        case NX_SECURE_TLS_CLIENT_STATE_ENCRYPTED_EXTENSIONS: return "ENCRYPTED_EXTENSIONS";
+        case NX_SECURE_TLS_CLIENT_STATE_HELLO_RETRY:          return "HELLO_RETRY";
+        default:                                              return "UNKNOWN";
+    }
+}
+
 /* Fires every 2s (see tx_timer_change() calls around post_secure_start in
  * App_HTTP_Thread_Entry) for as long as that call is blocked, so the
  * previously-silent stretch inside it -- TCP connect, TLS handshake, the
@@ -358,10 +388,11 @@ static VOID diag_heartbeat_entry(ULONG id)
     nx_packet_pool_info_get(&AppPool, &total, &free, &empty_requests, &empty_suspensions, &invalid_releases);
 
     printf("[heartbeat #%lu, t+%lu ms] pool free=%lu/%lu (empty_req=%lu, empty_susp=%lu) "
-           "tcp_state=%u tcp_outstanding_bytes=%lu\r\n",
+           "tcp_state=%u tcp_outstanding_bytes=%lu tls_client_state=%s\r\n",
            DiagHeartbeatTicks, elapsed_ms, free, total, empty_requests, empty_suspensions,
            (unsigned)HttpClient.nx_web_http_client_socket.nx_tcp_socket_state,
-           HttpClient.nx_web_http_client_socket.nx_tcp_socket_tx_outstanding_bytes);
+           HttpClient.nx_web_http_client_socket.nx_tcp_socket_tx_outstanding_bytes,
+           tls_client_state_name(HttpClient.nx_web_http_client_tls_session.nx_secure_tls_client_state));
 }
 
 /**
