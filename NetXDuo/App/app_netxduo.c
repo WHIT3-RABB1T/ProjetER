@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "app_azure_rtos.h"
+#include "sensors.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -572,14 +573,15 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
 
 /* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_SEC seconds, opens a
  * fresh TLS connection to HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT and
- * POSTs an incrementing decimal counter as the request body to
- * HTTP_RESOURCE, prints the (decrypted) response body, and tears the
- * client back down — one clean create/handshake/POST/delete cycle per
- * request, matching the lifecycle NetX Duo's own HTTP client POST sample
- * (netx_web_post_basic_test.c) uses: post_secure_start (runs the TLS
- * handshake via tls_setup_callback above, then sends headers +
- * Content-Length over the now-encrypted connection) ->
- * request_packet_allocate -> nx_packet_data_append (fills the body) ->
+ * POSTs a JSON snapshot of the onboard sensor suite (see sensors.h/.c --
+ * HTS221, LPS22HH, ISM330DHCX, IIS2MDC, VEML3235, VL53L5CX, all on I2C2)
+ * as the request body to HTTP_RESOURCE, prints the (decrypted) response
+ * body, and tears the client back down — one clean create/handshake/
+ * POST/delete cycle per request, matching the lifecycle NetX Duo's own
+ * HTTP client POST sample (netx_web_post_basic_test.c) uses:
+ * post_secure_start (runs the TLS handshake via tls_setup_callback above,
+ * then sends headers + Content-Length over the now-encrypted connection)
+ * -> request_packet_allocate -> nx_packet_data_append (fills the body) ->
  * put_packet (encrypts and sends it). */
 static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 {
@@ -591,8 +593,14 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     UCHAR       receive_buffer[256];
     ULONG       bytes;
     ULONG       counter = 0;
-    CHAR        counter_str[16];
-    UINT        counter_len;
+    /* static, not a plain local: this thread's stack is already sized
+     * tight against the RSA call chain (see the 8x DEFAULT_MEMORY_SIZE
+     * comment in MX_NetXDuo_Init below) -- putting 768 more bytes there
+     * on top of send/receive buffers would eat back into that margin for
+     * no reason, since this buffer only ever needs one writer at a time
+     * from this one thread anyway. */
+    static CHAR body[768];
+    UINT        body_len;
     ULONG       t0;
     ULONG       elapsed_ms;
 
@@ -607,6 +615,12 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
            (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
            (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
            HTTP_SERVER_HTTPS_PORT, HTTP_RESOURCE);
+
+    /* Probe the sensor suite once, up front: it's independent of Wi-Fi/DHCP
+     * (I2C2, not the network), each of the 6 sensors self-reports OK/FAILED
+     * over the same serial log, and Sensors_ReadJSON() below simply omits
+     * whatever didn't come up rather than blocking the HTTP loop on it. */
+    Sensors_Init();
 
     while (1)
     {
@@ -631,7 +645,11 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             continue;
         }
 
-        counter_len = (UINT)snprintf(counter_str, sizeof(counter_str), "%lu", counter);
+        /* Read every sensor that's up and format the result as one JSON
+         * body -- see sensors.h. Content-Length has to be known up front
+         * for post_secure_start() below, so this has to happen before the
+         * TLS handshake even starts, not while streaming the body out. */
+        body_len = (UINT)Sensors_ReadJSON(body, sizeof(body));
 
         printf("--- POST attempt #%lu: connecting to %u.%u.%u.%u:%d ---\r\n",
                counter,
@@ -643,7 +661,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 
         /* post_secure_start runs the TLS handshake (via tls_setup_callback
          * above) and then, over the now-encrypted connection, sends the
-         * request line + headers (including Content-Length: counter_len
+         * request line + headers (including Content-Length: body_len
          * from the total_bytes argument below); the body itself goes out
          * separately via put_packet.
          *
@@ -674,7 +692,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
         tx_timer_activate(&DiagHeartbeatTimer);
         ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                     HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
-                                                    counter_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
+                                                    body_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
         tx_timer_deactivate(&DiagHeartbeatTimer);
         elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
         print_pool_status("after post_secure_start");
@@ -693,7 +711,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             }
             else
             {
-                nx_packet_data_append(send_packet, counter_str, counter_len, &AppPool,
+                nx_packet_data_append(send_packet, body, body_len, &AppPool,
                                       5 * NX_IP_PERIODIC_RATE);
 
                 ret = nx_web_http_client_put_packet(&HttpClient, send_packet,
@@ -722,7 +740,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                         nx_packet_data_extract_offset(receive_packet, 0, receive_buffer,
                                                       sizeof(receive_buffer) - 1, &bytes);
                         receive_buffer[bytes] = 0;
-                        printf("POST %s <- %s -> %s\r\n", HTTP_RESOURCE, counter_str,
+                        printf("POST %s <- %s -> %s\r\n", HTTP_RESOURCE, body,
                                (char *)receive_buffer);
                         nx_packet_release(receive_packet);
                     }

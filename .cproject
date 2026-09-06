@@ -52,6 +52,10 @@
 									<listOptionValue builtIn="false" value="../Middlewares/ST/threadx/ports/cortex_m33/gnu/inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/CMSIS/Include"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/mx_wifi"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/B-U585I-IOT02A"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/Common"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/modules"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/porting"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/netxduo/common/drivers/wifi/mxchip"/>
 									<listOptionValue builtIn="false" value="../NetXDuo/Target"/>
 								</option>
@@ -90,6 +94,10 @@
 									<listOptionValue builtIn="false" value="../Middlewares/ST/threadx/ports/cortex_m33/gnu/inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/CMSIS/Include"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/mx_wifi"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/B-U585I-IOT02A"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/Common"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/modules"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/porting"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/netxduo/common/drivers/wifi/mxchip"/>
 									<listOptionValue builtIn="false" value="../NetXDuo/Target"/>
 								</option>
@@ -174,6 +182,10 @@
 									<listOptionValue builtIn="false" value="../Middlewares/ST/threadx/ports/cortex_m33/gnu/inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/CMSIS/Include"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/mx_wifi"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/B-U585I-IOT02A"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/Common"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/modules"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/porting"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/netxduo/common/drivers/wifi/mxchip"/>
 									<listOptionValue builtIn="false" value="../NetXDuo/Target"/>
 								</option>
@@ -211,6 +223,10 @@
 									<listOptionValue builtIn="false" value="../Middlewares/ST/threadx/ports/cortex_m33/gnu/inc"/>
 									<listOptionValue builtIn="false" value="../Drivers/CMSIS/Include"/>
 									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/mx_wifi"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/B-U585I-IOT02A"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/Common"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/modules"/>
+									<listOptionValue builtIn="false" value="../Drivers/BSP/Components/vl53l5cx/porting"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/netxduo/common/drivers/wifi/mxchip"/>
 									<listOptionValue builtIn="false" value="../NetXDuo/Target"/>
 								</option>

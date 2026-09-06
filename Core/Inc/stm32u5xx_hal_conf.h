@@ -51,7 +51,14 @@ extern "C" {
 /*#define HAL_GTZC_MODULE_ENABLED */
 /*#define HAL_HASH_MODULE_ENABLED */
 /*#define HAL_HCD_MODULE_ENABLED */
-/*#define HAL_I2C_MODULE_ENABLED */
+/* Enabled for the onboard sensor suite added in Drivers/BSP -- HTS221,
+ * LPS22HH, ISM330DHCX, IIS2MDC, VEML3235 and VL53L5CX all sit on I2C2
+ * (b_u585i_iot02a_bus.c's BSP_I2C2_Init()/MX_I2C2_Init()). Without this,
+ * stm32u5xx_hal_i2c.c/_i2c_ex.c (already linked into the project, but
+ * entirely wrapped in #ifdef HAL_I2C_MODULE_ENABLED) compile to nothing,
+ * and every HAL_I2C_* call the BSP layer makes is an undefined reference
+ * at link time. */
+#define HAL_I2C_MODULE_ENABLED
 #define HAL_ICACHE_MODULE_ENABLED
 /*#define HAL_IRDA_MODULE_ENABLED */
 /*#define HAL_IWDG_MODULE_ENABLED */

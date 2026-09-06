@@ -194,6 +194,11 @@
 			<locationURI>PROJECT_LOC/Core/Src/stm32u5xx_it.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/Core/sensors.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Core/Src/sensors.c</locationURI>
+		</link>
+		<link>
 			<name>Application/User/Core/tx_initialize_low_level.S</name>
 			<type>1</type>
 			<locationURI>PROJECT_LOC/Core/Src/tx_initialize_low_level.S</locationURI>
@@ -3527,6 +3532,106 @@
 			<name>Drivers/BSP/Components/mx_wifi/io_pattern/mx_wifi_spi.c</name>
 			<type>1</type>
 			<locationURI>PROJECT_LOC/Drivers/BSP/Components/mx_wifi/io_pattern/mx_wifi_spi.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_bus.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_bus.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_env_sensors.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_env_sensors.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_motion_sensors.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_motion_sensors.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_ranging_sensor.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_ranging_sensor.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_light_sensor.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/B-U585I-IOT02A/b_u585i_iot02a_light_sensor.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/hts221/hts221.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/hts221/hts221.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/hts221/hts221_reg.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/hts221/hts221_reg.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/lps22hh/lps22hh.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/lps22hh/lps22hh.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/lps22hh/lps22hh_reg.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/lps22hh/lps22hh_reg.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/ism330dhcx/ism330dhcx.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/ism330dhcx/ism330dhcx.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/ism330dhcx/ism330dhcx_reg.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/iis2mdc/iis2mdc.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/iis2mdc/iis2mdc.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/iis2mdc/iis2mdc_reg.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/iis2mdc/iis2mdc_reg.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/veml3235/veml3235.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/veml3235/veml3235.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/veml3235/veml3235_reg.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/veml3235/veml3235_reg.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/vl53l5cx/vl53l5cx.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/vl53l5cx/vl53l5cx.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/vl53l5cx/modules/vl53l5cx_api.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/vl53l5cx/modules/vl53l5cx_api.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/vl53l5cx/modules/vl53l5cx_plugin_detection_thresholds.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/vl53l5cx/modules/vl53l5cx_plugin_detection_thresholds.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/vl53l5cx/modules/vl53l5cx_plugin_xtalk.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/vl53l5cx/modules/vl53l5cx_plugin_xtalk.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/BSP/Components/vl53l5cx/porting/platform.c</name>
+			<type>1</type>
+			<locationURI>PROJECT_LOC/Drivers/BSP/Components/vl53l5cx/porting/platform.c</locationURI>
 		</link>
 		<link>
 			<name>Middlewares/NetXDuo/Crypto/nx_crypto_3des.c</name>
