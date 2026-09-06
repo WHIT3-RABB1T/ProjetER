@@ -43,6 +43,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input);
 static VOID ip_address_change_notify_callback(NX_IP *ip_instance, VOID *ptr);
 static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SESSION *tls_session);
 static VOID print_pool_status(const CHAR *label);
+static VOID diag_heartbeat_entry(ULONG id);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -53,6 +54,19 @@ TX_THREAD AppHTTPThread;
 TX_SEMAPHORE Semaphore;
 
 NX_PACKET_POOL AppPool;
+
+/* Diagnostic heartbeat: nx_web_http_client_post_secure_start() is one long
+ * blocking call, and the previous capture showed ~20+ silent seconds
+ * inside it with zero application-level output -- we had no idea whether
+ * that time was CPU-bound RSA math, a deadlock, or something draining the
+ * packet pool, just a gap. A ThreadX timer runs in its own system-timer
+ * thread context, independent of AppHTTPThread being blocked, so armed
+ * right before the call and disarmed right after, it gives us a live
+ * trace *during* that gap instead of a silent stretch bookended by two
+ * printfs. */
+static TX_TIMER DiagHeartbeatTimer;
+static volatile ULONG DiagHeartbeatT0;
+static volatile ULONG DiagHeartbeatTicks;
 
 ULONG IpAddress;
 ULONG NetMask;
@@ -121,7 +135,13 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   /* USER CODE END 0 */
 
   /* USER CODE BEGIN MX_NetXDuo_Init */
-#if (USE_STATIC_ALLOCATION == 1)    
+#if (USE_STATIC_ALLOCATION == 1)
+  /* Unmistakable marker printed on every boot, first thing, so a serial
+   * capture can be checked in one grep for "BUILD_MARKER" against
+   * whatever this string currently is -- bump the tag every time this
+   * file's instrumentation changes, so "is this actually the build I just
+   * flashed" is never a judgment call again. */
+  printf("=== BUILD_MARKER: diag-v3-heartbeat+pool ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* Initialize the NetX system. */
@@ -243,6 +263,20 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
     return NX_NOT_ENABLED;
   }
 
+  /* Diagnostic heartbeat timer -- created once here, TX_NO_ACTIVATE (idle
+   * until App_HTTP_Thread_Entry arms it with tx_timer_change +
+   * tx_timer_activate right before each post_secure_start call, then
+   * disarms it with tx_timer_deactivate right after). initial/reschedule
+   * ticks here are placeholders, always overwritten by tx_timer_change
+   * before use. */
+  ret = tx_timer_create(&DiagHeartbeatTimer, "Diag Heartbeat", diag_heartbeat_entry, 0,
+                        2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND, TX_NO_ACTIVATE);
+  if (ret != TX_SUCCESS)
+  {
+    printf("DiagHeartbeatTimer create failed: 0x%02X\r\n", ret);
+    return NX_NOT_ENABLED;
+  }
+
   /* create the DHCP client */
   ret = nx_dhcp_create(&DHCPClient, &IpInstance, "DHCP Client");
 
@@ -296,6 +330,38 @@ static VOID print_pool_status(const CHAR *label)
         printf("[pool %s] free=%lu/%lu, empty_requests=%lu, empty_suspensions=%lu, invalid_releases=%lu\r\n",
                label, free, total, empty_requests, empty_suspensions, invalid_releases);
     }
+}
+
+/* Fires every 2s (see tx_timer_change() calls around post_secure_start in
+ * App_HTTP_Thread_Entry) for as long as that call is blocked, so the
+ * previously-silent stretch inside it -- TCP connect, TLS handshake, the
+ * RSA-heavy steps -- now prints a live trace instead of a gap. Runs in
+ * ThreadX's own system-timer thread context, not AppHTTPThread, which is
+ * exactly why it can report *while* that thread is stuck inside one
+ * blocking NetX call: elapsed time so far, the packet pool's free count
+ * (falling free would mean something's actively consuming/holding
+ * packets during this stretch; flat would argue against a mid-handshake
+ * leak), and the underlying TCP socket's state + unacked-byte count
+ * (nonzero outstanding bytes would mean the transport is still waiting on
+ * something over the air; zero means TCP itself is idle and whatever is
+ * happening is purely on this end, e.g. RSA math). */
+static VOID diag_heartbeat_entry(ULONG id)
+{
+    ULONG total = 0, free = 0, empty_requests = 0, empty_suspensions = 0, invalid_releases = 0;
+    ULONG elapsed_ms;
+
+    TX_PARAMETER_NOT_USED(id);
+
+    DiagHeartbeatTicks++;
+    elapsed_ms = (tx_time_get() - DiagHeartbeatT0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
+
+    nx_packet_pool_info_get(&AppPool, &total, &free, &empty_requests, &empty_suspensions, &invalid_releases);
+
+    printf("[heartbeat #%lu, t+%lu ms] pool free=%lu/%lu (empty_req=%lu, empty_susp=%lu) "
+           "tcp_state=%u tcp_outstanding_bytes=%lu\r\n",
+           DiagHeartbeatTicks, elapsed_ms, free, total, empty_requests, empty_suspensions,
+           (unsigned)HttpClient.nx_web_http_client_socket.nx_tcp_socket_state,
+           HttpClient.nx_web_http_client_socket.nx_tcp_socket_tx_outstanding_bytes);
 }
 
 /**
@@ -524,9 +590,18 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
          * else and 5s was never actually the constraint. */
         print_pool_status("before post_secure_start");
         t0 = tx_time_get();
+        /* Arm the heartbeat: every 2s from here until the call returns,
+         * diag_heartbeat_entry() prints elapsed time + pool + TCP socket
+         * state -- this is what turns the previously-silent ~20+ second
+         * gap during the handshake into a live trace. */
+        DiagHeartbeatT0 = t0;
+        DiagHeartbeatTicks = 0;
+        tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
+        tx_timer_activate(&DiagHeartbeatTimer);
         ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                     HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
                                                     counter_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
+        tx_timer_deactivate(&DiagHeartbeatTimer);
         elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
         print_pool_status("after post_secure_start");
         if (ret != NX_SUCCESS)
@@ -585,6 +660,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
         }
 
         nx_web_http_client_delete(&HttpClient);
+        print_pool_status("after client delete");
 
         tx_thread_sleep(HTTP_POLL_PERIOD_SEC * TX_TIMER_TICKS_PER_SECOND);
     }
