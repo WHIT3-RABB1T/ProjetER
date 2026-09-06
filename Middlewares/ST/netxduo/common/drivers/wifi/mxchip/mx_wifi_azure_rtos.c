@@ -3,9 +3,13 @@
 #include "nx_driver_emw3080.h"
 #include "nx_user.h"
 #include <inttypes.h>
+#include <stdio.h>
 
+/* Temporarily routed to printf (was a no-op) for diagnosing the current
+ * connectivity issue -- revert once Wi-Fi + the TLS POST are confirmed
+ * working. See the matching change/comment in nx_driver_emw3080.c. */
 #if !defined(NX_DEBUG_DRIVER_SOURCE_LOG)
-#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   /* ; */
+#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   printf(__VA_ARGS__)
 #endif /*NX_DEBUG_DRIVER_SOURCE_LOG*/
 
 extern TX_THREAD *_tx_thread_current_ptr;

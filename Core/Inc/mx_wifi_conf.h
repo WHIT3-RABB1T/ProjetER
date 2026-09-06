@@ -58,12 +58,17 @@ int32_t mxwifi_probe(void **ll_drv_context);
 #define WIFI_SSID                                   "Galaxy S25 48F2"
 #define WIFI_PASSWORD                               "yj7qkctbtk8tcqr"
 
-/* DEBUG LOG */
-/* #define MX_WIFI_API_DEBUG */
-/* #define MX_WIFI_IPC_DEBUG */
-/* #define MX_WIFI_HCI_DEBUG */
-/* #define MX_WIFI_SLIP_DEBUG */
-/* #define MX_WIFI_IO_DEBUG */
+/* DEBUG LOG
+ * Enabled for diagnosing the current connectivity issue -- this is the same
+ * mechanism that worked before on the old project (see git history: "Enable
+ * mx_wifi driver debug logging (diagnostic)"). Shows the module's own view
+ * of init/join/IPC traffic, independent of anything app_netxduo.c prints.
+ * Re-comment these once the Wi-Fi link + TLS POST are confirmed working. */
+#define MX_WIFI_API_DEBUG
+#define MX_WIFI_IPC_DEBUG
+#define MX_WIFI_HCI_DEBUG
+#define MX_WIFI_SLIP_DEBUG
+#define MX_WIFI_IO_DEBUG
 
 
 #define MX_WIFI_PRODUCT_NAME                        ("MXCHIP-WIFI")

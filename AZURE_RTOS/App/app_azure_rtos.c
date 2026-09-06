@@ -115,7 +115,8 @@ VOID tx_application_define(VOID *first_unused_memory)
   if (tx_byte_pool_create(&NETXDUO_MEM_POOL_VAR_NAME, "Nx App memory pool", nx_byte_pool_buffer, NX_APP_MEM_POOL_SIZE) != TX_SUCCESS)
   {
     /* USER CODE BEGIN NX_Byte_Pool_Error */
-
+    printf("NetXDuo memory byte pool create failed (NX_APP_MEM_POOL_SIZE=%lu) -- nothing below this runs\r\n",
+           (unsigned long)NX_APP_MEM_POOL_SIZE);
     /* USER CODE END NX_Byte_Pool_Error */
   }
   else
@@ -129,6 +130,13 @@ VOID tx_application_define(VOID *first_unused_memory)
     if (status != NX_SUCCESS)
     {
       /* USER CODE BEGIN  MX_NetXDuo_Init_Error */
+      /* This used to spin silently forever with zero output -- if you see
+       * nothing at all after the startup banner, THIS is why: something in
+       * MX_NetXDuo_Init (packet pool / IP create / ARP-ICMP-UDP-TCP enable
+       * / thread create / DHCP create) returned an error, and we hung
+       * before the DHCP/Wi-Fi logging even started. */
+      printf("MX_NetXDuo_Init failed: 0x%02X -- hanging here (see error above for which step)\r\n",
+             status);
       while(1)
       {
       }

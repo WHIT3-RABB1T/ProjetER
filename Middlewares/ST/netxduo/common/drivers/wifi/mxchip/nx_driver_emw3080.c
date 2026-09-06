@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <stdio.h>
 
 #include "nx_api.h"
 #include "mx_wifi.h"
@@ -28,8 +29,13 @@
 #define NX_DRIVER_SOURCE
 
 #if !defined(NX_DEBUG_DRIVER_SOURCE_LOG)
-#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   /* ; */
-#define REMOVE_DEBUG_FUNC
+/* Temporarily routed to printf (was a no-op) for diagnosing the current
+ * connectivity issue -- also un-defining REMOVE_DEBUG_FUNC below so the
+ * nx_driver_mx_wifi_status_to_string() helper these log lines use for
+ * status transitions actually gets compiled. Revert both once Wi-Fi + the
+ * TLS POST are confirmed working: restore the no-op macro and re-define
+ * REMOVE_DEBUG_FUNC. */
+#define NX_DEBUG_DRIVER_SOURCE_LOG(...)   printf(__VA_ARGS__)
 #endif /*NX_DEBUG_DRIVER_SOURCE_LOG*/
 
 #include "nx_driver_emw3080.h"

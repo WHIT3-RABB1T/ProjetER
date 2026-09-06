@@ -134,59 +134,80 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   
   /* Create the Packet pool to be used for packet allocation */
   ret = nx_packet_pool_create(&AppPool, "Main Packet Pool", PAYLOAD_SIZE, pointer, NX_PACKET_POOL_SIZE);
-  
+
   if (ret != NX_SUCCESS)
   {
+    printf("nx_packet_pool_create failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+  printf("Packet pool created (%lu bytes, %u-byte packets)\r\n",
+         (unsigned long)NX_PACKET_POOL_SIZE, (unsigned)PAYLOAD_SIZE);
+
   /* Allocate the memory for Ip_Instance */
   if (tx_byte_allocate(byte_pool, (VOID **) &pointer,   2 * DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
   {
     return TX_POOL_ERROR;
   }
-  
-  /* Create the main NX_IP instance */
+
+  /* Create the main NX_IP instance -- this synchronously invokes the
+   * mx_wifi driver's INITIALIZE command below (module reset/init, MAC
+   * address read) and, right after, its ENABLE command (Wi-Fi join). With
+   * MX_WIFI_*_DEBUG on (Core/Inc/mx_wifi_conf.h) and
+   * NX_DEBUG_DRIVER_SOURCE_LOG routed to printf (nx_driver_emw3080.c /
+   * mx_wifi_azure_rtos.c), this call is where "Joining ... <SSID>" and all
+   * the module's own IPC/HCI/SLIP/IO chatter should start appearing. */
+  printf("Creating IP instance (this drives Wi-Fi module init + join)...\r\n");
   ret = nx_ip_create(&IpInstance, "Main Ip instance", NULL_ADDRESS, NULL_ADDRESS, &AppPool, nx_driver_emw3080_entry,
                      pointer, 2 * DEFAULT_MEMORY_SIZE, DEFAULT_PRIORITY);
-  
+
   if (ret != NX_SUCCESS)
   {
+    printf("nx_ip_create failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+  printf("IP instance created\r\n");
+
   /* Allocate the memory for ARP */
   if (tx_byte_allocate(byte_pool, (VOID **) &pointer, DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
   {
     return TX_POOL_ERROR;
   }
-  
+
   /*  Enable the ARP protocol and provide the ARP cache size for the IP instance */
   ret = nx_arp_enable(&IpInstance, (VOID *)pointer, DEFAULT_MEMORY_SIZE);
-  
+
   if (ret != NX_SUCCESS)
   {
+    printf("nx_arp_enable failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+
   /* Enable the ICMP */
   ret = nx_icmp_enable(&IpInstance);
-  
+
   if (ret != NX_SUCCESS)
   {
+    printf("nx_icmp_enable failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+
   /* Enable the UDP protocol required for  DHCP communication */
   ret = nx_udp_enable(&IpInstance);
+  if (ret != NX_SUCCESS)
+  {
+    printf("nx_udp_enable failed: 0x%02X\r\n", ret);
+    return NX_NOT_ENABLED;
+  }
 
   /* Enable the TCP protocol, required by the HTTP client */
   ret = nx_tcp_enable(&IpInstance);
 
   if (ret != NX_SUCCESS)
   {
+    printf("nx_tcp_enable failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
+  printf("ARP/ICMP/UDP/TCP enabled\r\n");
 
   /* Allocate the memory for main thread   */
   if (tx_byte_allocate(byte_pool, (VOID **) &pointer,2 *  DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
@@ -197,12 +218,13 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   /* Create the main thread */
   ret = tx_thread_create(&AppMainThread, "App Main thread", App_Main_Thread_Entry, 0, pointer, 2 * DEFAULT_MEMORY_SIZE,
                          APP_THREAD_PRIORITY, APP_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_AUTO_START);
-  
+
   if (ret != TX_SUCCESS)
   {
+    printf("AppMainThread create failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+
   /* Allocate the memory for HTTP client thread   */
   if (tx_byte_allocate(byte_pool, (VOID **) &pointer,2 *  DEFAULT_MEMORY_SIZE, TX_NO_WAIT) != TX_SUCCESS)
   {
@@ -212,22 +234,26 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   /* create the HTTP client thread */
   ret = tx_thread_create(&AppHTTPThread, "App HTTP Thread", App_HTTP_Thread_Entry, 0, pointer, 2 * DEFAULT_MEMORY_SIZE,
                          APP_THREAD_PRIORITY, APP_THREAD_PRIORITY, TX_NO_TIME_SLICE, TX_DONT_START);
-  
+
   if (ret != TX_SUCCESS)
   {
+    printf("AppHTTPThread create failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+
   /* create the DHCP client */
   ret = nx_dhcp_create(&DHCPClient, &IpInstance, "DHCP Client");
-  
+
   if (ret != NX_SUCCESS)
   {
+    printf("nx_dhcp_create failed: 0x%02X\r\n", ret);
     return NX_NOT_ENABLED;
   }
-  
+
   /* set DHCP notification callback  */
   tx_semaphore_create(&Semaphore, "App Semaphore", 0);
+
+  printf("MX_NetXDuo_Init done -- AppMainThread will now start DHCP\r\n");
 #endif  
   /* USER CODE END MX_NetXDuo_Init */
 
@@ -255,37 +281,54 @@ static VOID ip_address_change_notify_callback(NX_IP *ip_instance, VOID *ptr)
 static VOID App_Main_Thread_Entry(ULONG thread_input)
 {
   UINT ret;
-  
+  ULONG waited_sec = 0;
+
   /* register the IP address change callback */
   ret = nx_ip_address_change_notify(&IpInstance, ip_address_change_notify_callback, NULL);
   if (ret != NX_SUCCESS)
   {
-    Error_Handler();
-  }
-  
-  /* start the DHCP client */
-  ret = nx_dhcp_start(&DHCPClient);
-  if (ret != NX_SUCCESS)
-  {
+    printf("nx_ip_address_change_notify failed: 0x%02X\r\n", ret);
     Error_Handler();
   }
 
-  /* wait until an IP address is ready */
-  if(tx_semaphore_get(&Semaphore, TX_WAIT_FOREVER) != TX_SUCCESS)
+  /* start the DHCP client */
+  printf("Starting DHCP client...\r\n");
+  ret = nx_dhcp_start(&DHCPClient);
+  if (ret != NX_SUCCESS)
   {
+    printf("nx_dhcp_start failed: 0x%02X\r\n", ret);
     Error_Handler();
   }
+
+  /* Wait until an IP address is ready, polling every 5s instead of
+   * blocking forever on one TX_WAIT_FOREVER -- previously, if Wi-Fi
+   * join/DHCP ever stalled, this thread produced zero further output
+   * ("app prints only its startup banner and nothing else", a symptom
+   * seen before on the old project). This makes that same stall visible:
+   * one line every 5s for as long as we're still waiting, rather than
+   * silence indistinguishable from a hang. */
+  while (tx_semaphore_get(&Semaphore, 5 * TX_TIMER_TICKS_PER_SECOND) != TX_SUCCESS)
+  {
+    waited_sec += 5;
+    printf("Still waiting for DHCP lease (%lus so far) -- Wi-Fi join not done yet, "
+           "or module not answering. Check the MX_WIFI_*_DEBUG / driver join logs above.\r\n",
+           waited_sec);
+  }
+  printf("DHCP lease acquired after %lus\r\n", waited_sec);
+
   /* get IP address */
   ret = nx_ip_address_get(&IpInstance, &IpAddress, &NetMask);
-  
+
   /* print the IP address and the net mask */
   PRINT_IP_ADDRESS(IpAddress);
 
   if (ret != TX_SUCCESS)
   {
+    printf("nx_ip_address_get failed: 0x%02X\r\n", ret);
     Error_Handler();
   }
   /* the network is correctly initialized, start the HTTP thread */
+  printf("Network up -- starting HTTPS POST client thread\r\n");
   tx_thread_resume(&AppHTTPThread);
 
   /* this thread is not needed any more, we relinquish it */
@@ -370,6 +413,7 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
         return(ret);
     }
 
+    printf("TLS session set up ok, handshake starting...\r\n");
     return(NX_SUCCESS);
 }
 
@@ -421,6 +465,14 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 
         counter_len = (UINT)snprintf(counter_str, sizeof(counter_str), "%lu", counter);
 
+        printf("--- POST attempt #%lu: connecting to %u.%u.%u.%u:%d ---\r\n",
+               counter,
+               (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
+               (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
+               (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
+               (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
+               HTTP_SERVER_HTTPS_PORT);
+
         /* post_secure_start runs the TLS handshake (via tls_setup_callback
          * above) and then, over the now-encrypted connection, sends the
          * request line + headers (including Content-Length: counter_len
@@ -435,6 +487,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
         }
         else
         {
+            printf("TLS handshake + HTTP headers sent ok, sending body...\r\n");
             ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
                                                               5 * NX_IP_PERIODIC_RATE);
             if (ret != NX_SUCCESS)
