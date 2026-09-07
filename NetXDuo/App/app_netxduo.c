@@ -73,25 +73,43 @@ static volatile ULONG DiagHeartbeatT0;
 static volatile ULONG DiagHeartbeatTicks;
 
 /* Watchdog safety net: real-hardware testing surfaced the NetX/TLS stack
- * occasionally wedging *indefinitely* mid-request -- observed once stuck
- * at tls_client_state SERVERHELLO_DONE (mid-RSA, no forward progress) for
- * 26+ seconds, and once with TCP established but the TLS handshake never
- * even starting, TCP eventually dropping itself into FIN_WAIT_2 and
- * sitting there for 80+ seconds -- in both cases the blocking NetX call
- * (nx_web_http_client_post_secure_start(), with its own 30s wait_option)
- * simply never returned control to AppHTTPThread at all, so there is
- * nothing at the app level that can time this out or recover from it;
- * only a full device reset gets it moving again.
+ * occasionally wedging *indefinitely* mid-request -- observed stuck at
+ * tls_client_state SERVERHELLO_DONE (mid-RSA, no forward progress), and
+ * separately with TCP fully established but the TLS handshake never
+ * progressing at all -- in both cases the blocking NetX call
+ * (nx_web_http_client_post_secure_start()) simply never returned control
+ * to AppHTTPThread, no matter how short its own wait_option was set.
  *
- * IWDG closes that gap: WatchdogTimer polls, every 2s, whether
- * App_HTTP_Thread_Entry's endpoint loop has completed an iteration
- * (WatchdogLastProgressTick, stamped at the top of that loop -- see
- * below) within the last WATCHDOG_STALE_TICKS, and only refreshes the
- * hardware watchdog while that's true. A genuine wedge stops progress
- * being stamped, refreshes stop, and the ~20s IWDG hardware timeout
+ * That second case traces to a real bug in ST's vendored NetX Secure:
+ * _nx_secure_tls_handshake_process() (nx_secure_tls_handshake_process.c)
+ * loops calling _nx_secure_tls_session_receive_records() with the FULL
+ * wait_option on *every* iteration --
+ *     while (state != HANDSHAKE_FINISHED)
+ *         status = _nx_secure_tls_session_receive_records(session, &pkt, wait_option);
+ * -- so wait_option bounds each individual receive, never the handshake
+ * as a whole; and deeper still, _nx_secure_tls_session_start() takes a
+ * process-wide mutex (_nx_secure_tls_protection) with a hardcoded
+ * TX_WAIT_FOREVER. If that mutex is ever left held (an unpaired
+ * get/put on some internal error path we don't have visibility into
+ * without a compiler/debugger on real hardware), every future handshake
+ * blocks on it forever, completely bypassing whatever wait_option this
+ * file passes in -- which is exactly why shortening it to 8s upstream
+ * had no effect on this particular failure mode. Not something fixable
+ * from application code short of patching vendored middleware blind.
+ *
+ * IWDG is the backstop that actually works regardless: WatchdogTimer
+ * polls, every 2s, whether App_HTTP_Thread_Entry's poll loop has made
+ * progress (WatchdogLastProgressTick, stamped at the top of that loop --
+ * see below) within the last WATCHDOG_STALE_TICKS, and only refreshes
+ * the hardware watchdog while that's true. A genuine wedge stops
+ * progress being stamped, refreshes stop, and the IWDG hardware timeout
  * resets the board on its own -- independent of ThreadX's scheduler,
- * immune to AppHTTPThread (or anything else) being stuck in a blocking
- * library call with no yield point. Armed only once Wi-Fi/DHCP/sensor
+ * immune to AppHTTPThread being stuck in a blocking library call with no
+ * yield point (or, as here, stuck on a mutex that ignores every
+ * wait_option passed to it). Tuned tight (see the constants below) so a
+ * wedge costs a several-second interruption instead of tens of seconds,
+ * since that's the only lever available without a NetX Secure fix this
+ * session can't safely make blind. Armed only once Wi-Fi/DHCP/sensor
  * probing have already finished (right before App_HTTP_Thread_Entry's
  * main loop starts, see there) specifically so a slow-but-progressing
  * boot sequence can never itself trip a spurious reset. */
@@ -99,9 +117,14 @@ static IWDG_HandleTypeDef   hiwdg;
 static TX_TIMER              WatchdogTimer;
 static volatile ULONG        WatchdogLastProgressTick;
 /* LSI_VALUE (stm32u5xx_hal_conf.h) / IWDG_PRESCALER_256 = 32000/256 = 125 Hz
- * counter clock; 2500 counts / 125 Hz = 20.0s hardware timeout. */
-#define WATCHDOG_IWDG_RELOAD    2500U
-#define WATCHDOG_STALE_TICKS    (15 * TX_TIMER_TICKS_PER_SECOND)
+ * counter clock; 1000 counts / 125 Hz = 8.0s hardware timeout. Every
+ * successful round actually observed on real hardware completes in
+ * ~0.5-0.65s, so even worst-case (WATCHDOG_STALE_TICKS elapsing right
+ * before a heartbeat tick, then the full IWDG reload on top) leaves a
+ * wide margin against a spurious trip while still cutting a genuine
+ * wedge's cost from ~34s down to roughly a third of that. */
+#define WATCHDOG_IWDG_RELOAD    1000U
+#define WATCHDOG_STALE_TICKS    (5 * TX_TIMER_TICKS_PER_SECOND)
 
 ULONG IpAddress;
 ULONG NetMask;
@@ -473,7 +496,7 @@ static VOID watchdog_timer_entry(ULONG id)
         HAL_IWDG_Refresh(&hiwdg);
     }
     /* else: no progress in over WATCHDOG_STALE_TICKS -- stop refreshing
-     * and let the ~20s IWDG hardware timeout reset the board. */
+     * and let the ~8s IWDG hardware timeout reset the board. */
 }
 
 /**
@@ -690,7 +713,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 #if defined(DBGMCU_APB1FZR1_DBG_IWDG_STOP)
     /* Halt the IWDG countdown while a debugger has the core stopped at a
      * breakpoint -- without this, pausing in the debugger for longer than
-     * the ~20s timeout resets the board out from under the debug session,
+     * the ~8s timeout resets the board out from under the debug session,
      * which has nothing to do with a real stall. */
     __HAL_DBGMCU_FREEZE_IWDG();
 #endif
@@ -706,7 +729,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     {
         tx_timer_create(&WatchdogTimer, "Watchdog Timer", watchdog_timer_entry, 0,
                         2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND, TX_AUTO_ACTIVATE);
-        printf("Watchdog: armed (~20s IWDG timeout, resets if a poll round stalls that long)\r\n");
+        printf("Watchdog: armed (~8s IWDG timeout, resets if a poll round stalls that long)\r\n");
     }
 
     while (1)
