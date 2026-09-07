@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board Sensor Dashboard</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-border: #262b36;
+    --text: #e6e9ef;
+    --text-dim: #8892a4;
+    --accent: #4da3ff;
+    --ok: #3ecf8e;
+    --warn: #e8b339;
+    --bad: #e85d5d;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.2px;
+  }
+  h1 span { color: var(--text-dim); font-weight: 400; }
+  #status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    padding: 6px 12px;
+    border-radius: 999px;
+  }
+  #status .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bad);
+    transition: background 0.3s ease;
+    flex: none;
+  }
+  #status.live .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  #status.stale .dot { background: var(--warn); }
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    min-height: 108px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: opacity 0.2s ease, border-color 0.2s ease;
+  }
+  .card.empty { opacity: 0.45; }
+  .card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .card-title .icon { font-size: 16px; }
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .metric {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-family: var(--mono);
+  }
+  .metric .label { color: var(--text-dim); font-size: 12px; }
+  .metric .value { font-size: 18px; font-weight: 600; }
+  .metric .unit { color: var(--text-dim); font-size: 12px; margin-left: 4px; font-weight: 400; }
+  .axis-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    font-family: var(--mono);
+  }
+  .axis-row .axis {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .axis-row .axis .k { color: var(--text-dim); font-size: 11px; display: block; }
+  .axis-row .axis .v { font-size: 15px; font-weight: 600; }
+  .placeholder {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-style: italic;
+  }
+  footer {
+    margin-top: 28px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  footer code {
+    font-family: var(--mono);
+    background: var(--panel);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Board Sensor Dashboard <span id="source"></span></h1>
+  <div id="status"><span class="dot"></span><span id="status-text">waiting for first reading…</span></div>
+</header>
+
+<div id="grid"><!-- cards injected by renderAll() --></div>
+
+<footer>
+  Polling <code>/api/latest</code> every <span id="poll-interval-label"></span>. Source: <code>Core/Src/sensors.c</code>
+  (<code>Sensors_ReadAllJSON()</code>) via <code>App_HTTP_Thread_Entry</code>'s HTTPS POST to <code>/sensors</code>.
+</footer>
+
+<script>
+const POLL_MS = 500;
+document.getElementById("poll-interval-label").textContent = (POLL_MS / 1000) + "s";
+
+// One entry per sensor category the board can send (Sensors_Endpoints[] /
+// Sensors_ReadAllJSON() in Core/Src/sensors.c). `render` turns that
+// category's JSON value into the card body's inner HTML; an unlisted key
+// in a reading just gets a generic key=value card via renderGeneric,
+// same fallback spirit as CATEGORY_FORMATTERS on the Python side.
+const CARDS = [
+  { key: "temperature",   icon: "🌡️", title: "Temperature", render: renderTemperature },
+  { key: "humidity",      icon: "💧", title: "Humidity",    render: renderHumidity },
+  { key: "pressure",      icon: "🌀", title: "Pressure",    render: renderPressure },
+  { key: "accelerometer", icon: "📈", title: "Accelerometer", render: renderAxes("mg") },
+  { key: "gyroscope",     icon: "🔄", title: "Gyroscope",     render: renderAxes("mdps") },
+  { key: "magnetometer",  icon: "🧭", title: "Magnetometer",  render: renderAxes("mgauss") },
+  { key: "light",         icon: "💡", title: "Light",       render: renderLight },
+  { key: "ranging",       icon: "📏", title: "Ranging",     render: renderRanging },
+];
+
+function metric(label, value, unit) {
+  return `<div class="metric"><span class="label">${label}</span>` +
+         `<span class="value">${value}<span class="unit">${unit || ""}</span></span></div>`;
+}
+
+function renderTemperature(v) {
+  let out = "";
+  if (v.hts221_c !== undefined) out += metric("HTS221", v.hts221_c, "°C");
+  if (v.lps22hh_c !== undefined) out += metric("LPS22HH", v.lps22hh_c, "°C");
+  return out || renderGenericBody(v);
+}
+function renderHumidity(v) {
+  return v.hts221_rh !== undefined ? metric("HTS221", v.hts221_rh, "%RH") : renderGenericBody(v);
+}
+function renderPressure(v) {
+  return v.lps22hh_hpa !== undefined ? metric("LPS22HH", v.lps22hh_hpa, "hPa") : renderGenericBody(v);
+}
+function renderAxes(unit) {
+  return function (v) {
+    if (v.x === undefined) return renderGenericBody(v);
+    return `<div class="axis-row">` +
+      `<div class="axis"><span class="k">X</span><span class="v">${v.x}</span></div>` +
+      `<div class="axis"><span class="k">Y</span><span class="v">${v.y}</span></div>` +
+      `<div class="axis"><span class="k">Z</span><span class="v">${v.z}</span></div>` +
+      `</div><div class="metric"><span class="label"></span><span class="unit">${unit}</span></div>`;
+  };
+}
+function renderLight(v) {
+  if (v.als_raw === undefined) return renderGenericBody(v);
+  return metric("ALS", v.als_raw, "raw") + metric("White", v.white_raw, "raw");
+}
+function renderRanging(v) {
+  const zones = v.zones;
+  if (!Array.isArray(zones)) return renderGenericBody(v);
+  return metric("Zones", zones.length, "") +
+    `<div class="placeholder">${zones.join(", ")} mm</div>`;
+}
+function renderGenericBody(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v !== "object") return metric("value", v, "");
+  return Object.entries(v).map(([k, val]) => metric(k, val, "")).join("");
+}
+
+function cardHTML(def, value) {
+  const empty = value === undefined;
+  const body = empty
+    ? `<div class="placeholder">no data this round</div>`
+    : def.render(value);
+  return `<div class="card ${empty ? "empty" : ""}" id="card-${def.key}">` +
+         `<div class="card-title"><span class="icon">${def.icon}</span>${def.title}</div>` +
+         `<div class="card-body">${body}</div></div>`;
+}
+
+function renderAll(reading) {
+  const grid = document.getElementById("grid");
+  const known = new Set(CARDS.map(c => c.key));
+  let html = CARDS.map(def => cardHTML(def, reading ? reading[def.key] : undefined)).join("");
+  // Any category the board sends that we don't have a dedicated card for
+  // yet still shows up, generically, rather than being silently dropped.
+  if (reading) {
+    for (const key of Object.keys(reading)) {
+      if (known.has(key)) continue;
+      html += `<div class="card"><div class="card-title"><span class="icon">❔</span>${key}</div>` +
+              `<div class="card-body">${renderGenericBody(reading[key])}</div></div>`;
+    }
+  }
+  grid.innerHTML = html;
+}
+
+let lastUpdatedAt = null;
+let lastSource = null;
+
+function updateStatus(source) {
+  const el = document.getElementById("status");
+  const text = document.getElementById("status-text");
+  const sourceEl = document.getElementById("source");
+  sourceEl.textContent = source ? "— " + source : "";
+  if (lastUpdatedAt === null) {
+    el.className = "";
+    text.textContent = "waiting for first reading…";
+    return;
+  }
+  const ageMs = Date.now() - lastUpdatedAt;
+  const ageS = (ageMs / 1000).toFixed(1);
+  if (ageMs < 3000) {
+    el.className = "live";
+    text.textContent = `live — updated ${ageS}s ago`;
+  } else if (ageMs < 15000) {
+    el.className = "stale";
+    text.textContent = `stale — last update ${ageS}s ago`;
+  } else {
+    el.className = "";
+    text.textContent = `no data for ${ageS}s — is the board still running?`;
+  }
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/latest", { cache: "no-store" });
+    const data = await res.json();
+    if (data.updated_at_ms) {
+      lastUpdatedAt = data.updated_at_ms;
+      renderAll(data.reading);
+    }
+    lastSource = data.source || null;
+    updateStatus(lastSource);
+  } catch (e) {
+    // Transient fetch failure (e.g. page loaded before the server was
+    // ready) -- just let the next poll try again.
+  }
+}
+
+renderAll(null);
+updateStatus(null);
+poll();
+setInterval(poll, POLL_MS);
+// Ticks the "Xs ago" text between polls too, so it counts up smoothly
+// instead of only updating every POLL_MS.
+setInterval(() => updateStatus(lastSource), 500);
+</script>
+
+</body>
+</html>

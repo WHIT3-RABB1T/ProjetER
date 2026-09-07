@@ -13,10 +13,16 @@ logging the reading in that category's own shape (falling back to a plain
 key=value dump for an unrecognized category, or printing the raw body
 verbatim if it isn't valid JSON at all -- e.g. an older firmware build
 still sending one-object-per-resource, or the even older plain decimal
-counter, this used to send), and still answers plain GETs (from a browser
-or curl) with a small greeting — either way it logs the request, enough to
+counter, this used to send) -- either way it logs the request, enough to
 confirm the board is actually reaching this machine, now over an
 encrypted connection.
+
+GET / serves dashboard.html, a live browser dashboard (one card per
+sensor category, polling GET /api/latest every 500ms) showing whatever
+the board's most recent POST contained -- open https://<this machine's
+IP>:<port>/ in a browser (self-signed cert, so it'll warn once; proceed
+past it). Any other GET path still gets the old plaintext greeting, e.g.
+for a quick curl-reachability check.
 
 The TLS side is deliberately pinned narrow, to match exactly what the
 board's NetX Secure TLS stack can do: its ciphersuite table
@@ -47,6 +53,7 @@ import socket
 import socketserver
 import ssl
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -55,6 +62,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 # (observed: well under 2s), but short enough that a connection that's
 # genuinely never going to finish gets dropped in seconds, not never.
 CONNECTION_TIMEOUT_SECONDS = 10
+
+# The most recent successfully-parsed reading, for the browser dashboard
+# (GET / -- dashboard.html -- polls GET /api/latest) to show. Written by
+# do_POST, read by do_GET; HTTPSServer is threaded (one thread per
+# connection), so every access goes through _latest_lock rather than
+# assuming only one request is ever in flight at a time.
+_latest_lock = threading.Lock()
+_latest_reading = None    # dict, or None before the first POST ever arrives
+_latest_at_ms = None      # int, time.time()*1000 when _latest_reading was set
+_latest_source = None     # str, the board's IP at that time
 
 
 def guess_local_ip() -> str:
@@ -117,12 +134,59 @@ class Handler(BaseHTTPRequestHandler):
     # that default (it includes client address and timestamp) and just
     # tack on which resource was requested.
     def do_GET(self):
-        body = f"Hello from {socket.gethostname()}, you asked for {self.path}\n".encode()
+        if self.path == "/":
+            self._serve_dashboard()
+        elif self.path == "/api/latest":
+            self._serve_latest_json()
+        else:
+            body = f"Hello from {socket.gethostname()}, you asked for {self.path}\n".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    def _serve_dashboard(self):
+        # Read dashboard.html fresh on every request (it's a handful of KB,
+        # this isn't a hot path) rather than caching it in memory, so
+        # editing the file takes effect on the next browser refresh with
+        # no need to restart this server.
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.html")
+        try:
+            with open(path, "rb") as f:
+                body = f.read()
+        except OSError as e:
+            body = f"dashboard.html missing or unreadable: {e}\n".encode()
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _serve_latest_json(self):
+        # dashboard.html polls this every 500ms. Snapshot the shared state
+        # under the lock rather than holding it while we serialize/write,
+        # so a POST arriving mid-response never blocks on us (or us on it)
+        # for longer than a dict copy.
+        with _latest_lock:
+            reading, updated_at_ms, source = _latest_reading, _latest_at_ms, _latest_source
+        payload = json.dumps({
+            "reading": reading,
+            "updated_at_ms": updated_at_ms,
+            "source": source,
+        }).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_POST(self):
         # The board (App_HTTP_Thread_Entry / sensors.c) POSTs one combined
@@ -164,6 +228,17 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as e:
                         line = f"(couldn't format: {e}) {value!r}"
                     print(f"    {category}: {line}", flush=True)
+
+            if isinstance(reading, dict) and reading:
+                # Feed the browser dashboard (GET / -> dashboard.html,
+                # polling GET /api/latest) -- only for an actual sensor
+                # reading, not an empty or non-dict body.
+                global _latest_reading, _latest_at_ms, _latest_source
+                with _latest_lock:
+                    _latest_reading = reading
+                    _latest_at_ms = int(time.time() * 1000)
+                    _latest_source = self.client_address[0]
+
             reply = b"ack\n"
 
         self.send_response(200)
@@ -269,12 +344,14 @@ def main() -> None:
     ctx.set_ciphers("AES128-SHA256:AES256-SHA256")
 
     server = HTTPSServer((args.host, args.port), Handler, ctx)
+    local_ip = guess_local_ip()
 
     print(f"Listening on TLS 1.2 (AES128-SHA256:AES256-SHA256) {args.host}:{args.port}", flush=True)
     print(f"Certificate: {args.certfile}", flush=True)
-    print(f"This machine's LAN-facing IP looks like: {guess_local_ip()}", flush=True)
+    print(f"This machine's LAN-facing IP looks like: {local_ip}", flush=True)
     print("  -> HTTP_SERVER_ADDRESS in NetXDuo/App/app_netxduo.h must match this, on the same network as the board,", flush=True)
     print("     and must match what tools/gen_https_cert.sh signed the certificate for.", flush=True)
+    print(f"Dashboard: https://{local_ip}:{args.port}/ (browser will warn on the self-signed cert -- proceed past it)", flush=True)
     print("Waiting for requests from the board... Ctrl+C to stop.\n", flush=True)
 
     try:
