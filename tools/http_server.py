@@ -184,6 +184,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # This page changes as this tool evolves and is re-read fresh off
+        # disk on every request (see the comment above) specifically so
+        # edits take effect immediately -- a browser caching an old copy
+        # (nothing here sent Cache-Control before, so caching behavior was
+        # left entirely up to each browser's own heuristics) would defeat
+        # that and silently serve a stale page/script indefinitely.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
