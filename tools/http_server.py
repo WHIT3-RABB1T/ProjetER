@@ -44,10 +44,17 @@ import argparse
 import json
 import os
 import socket
+import socketserver
 import ssl
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# Bounds every accepted connection's TLS handshake and body read (see
+# HTTPSServer below) -- generous next to any real handshake+POST cycle
+# (observed: well under 2s), but short enough that a connection that's
+# genuinely never going to finish gets dropped in seconds, not never.
+CONNECTION_TIMEOUT_SECONDS = 10
 
 
 def guess_local_ip() -> str:
@@ -125,7 +132,16 @@ class Handler(BaseHTTPRequestHandler):
         # Content-Length bytes back off the socket, then print each
         # top-level key using CATEGORY_FORMATTERS to know its shape.
         length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length)
+        try:
+            raw = self.rfile.read(length)
+        except OSError as e:
+            # Covers socket.timeout (CONNECTION_TIMEOUT_SECONDS, set in
+            # HTTPSServer.get_request()) among other things -- print a
+            # clean line instead of letting socketserver's default
+            # handle_error() dump a full traceback for what's really just
+            # one dropped/incomplete connection.
+            print(f"    {self.path}: read failed/timed out ({e}) -- dropping this connection", flush=True)
+            return
 
         try:
             reading = json.loads(raw.decode())
@@ -161,23 +177,46 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[{ts}] {self.address_string()} -> {format % args}", flush=True)
 
 
-class HTTPSServer(HTTPServer):
+class HTTPSServer(socketserver.ThreadingMixIn, HTTPServer):
     """HTTPServer that wraps each *accepted connection* in TLS individually,
-    rather than wrapping the listening socket itself.
+    rather than wrapping the listening socket itself, and handles each
+    connection on its own thread.
 
     Wrapping the listening socket (ctx.wrap_socket(server.socket, ...)) makes
     accept() perform the TLS handshake automatically, inline -- convenient,
-    but fragile: this server is single-threaded, so if any one client sends
-    a malformed or incompatible ClientHello, that accept() call itself
-    raises (or worse, hangs) *before* socketserver's own request loop gets a
-    chance to isolate the failure, silently wedging the server for every
-    later connection too, with nothing printed to explain why. Wrapping
-    per-connection here means a bad handshake from one client only ever
-    fails that one get_request() call -- socketserver's own loop (which
-    already treats OSError, the parent class of ssl.SSLError, as "drop this
-    one and keep serving") handles the rest, and we get a log line either
-    way.
+    but fragile: if any one client sends a malformed or incompatible
+    ClientHello, that accept() call itself raises (or worse, hangs) *before*
+    socketserver's own request loop gets a chance to isolate the failure.
+    Wrapping per-connection here means a bad handshake from one client only
+    ever fails that one get_request() call -- socketserver's own loop
+    (which already treats OSError, the parent class of ssl.SSLError, as
+    "drop this one and keep serving") handles the rest, and we get a log
+    line either way.
+
+    That still isn't the whole story, though -- real-hardware testing
+    found the board occasionally sitting with TCP fully established but
+    the TLS handshake never progressing at all, for as long as it was left
+    running, recovering only when this server process itself was killed
+    and restarted. Nothing here was actually the board's fault: plain
+    HTTPServer (even with the per-connection wrap above) is still
+    single-threaded and serializes every connection through one
+    accept-handle-repeat loop, and neither the TLS handshake
+    (wrap_socket's do_handshake_on_connect) nor a handler's own
+    self.rfile.read() in do_POST() had any timeout at all -- so if either
+    one ever blocked on a single connection (a dropped byte, a partial
+    body, any read that doesn't fully complete), this process's *only*
+    thread never returned to accept() again, and every later connection
+    from the board just sat fully established in the OS's own backlog,
+    never reaching this code at all, forever. Killing the process was
+    the only way out because that's what dropped the backlog too.
+    ThreadingMixIn (each connection handled on its own thread, so one
+    stuck connection can never block any other) plus a hard timeout on
+    every connection (CONNECTION_TIMEOUT_SECONDS, set before the TLS
+    handshake even starts, so it bounds that *and* every read/write in
+    do_POST/do_GET) together close both ends of that gap.
     """
+
+    daemon_threads = True  # so a still-stuck handler thread never blocks process exit (Ctrl+C)
 
     def __init__(self, server_address, handler_cls, ssl_context):
         self.ssl_context = ssl_context
@@ -185,6 +224,7 @@ class HTTPSServer(HTTPServer):
 
     def get_request(self):
         conn, addr = super().get_request()
+        conn.settimeout(CONNECTION_TIMEOUT_SECONDS)
         try:
             tls_conn = self.ssl_context.wrap_socket(conn, server_side=True)
             # Proof this is a real, negotiated TLS channel (not merely "on
@@ -197,7 +237,7 @@ class HTTPSServer(HTTPServer):
                   f"{tls_conn.version()} / {cipher_name} ({secret_bits}-bit)", flush=True)
             return tls_conn, addr
         except (ssl.SSLError, OSError) as e:
-            print(f"[{time.strftime('%H:%M:%S')}] {addr[0]} -> TLS handshake failed: {e}", flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] {addr[0]} -> TLS handshake failed or timed out: {e}", flush=True)
             conn.close()
             raise
 
