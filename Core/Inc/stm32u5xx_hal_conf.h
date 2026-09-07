@@ -61,7 +61,13 @@ extern "C" {
 #define HAL_I2C_MODULE_ENABLED
 #define HAL_ICACHE_MODULE_ENABLED
 /*#define HAL_IRDA_MODULE_ENABLED */
-/*#define HAL_IWDG_MODULE_ENABLED */
+/* Enabled for App_HTTP_Thread_Entry's watchdog safety net (app_netxduo.c)
+ * -- see the comment there for why: the NetX/TLS stack has been observed
+ * to occasionally wedge indefinitely mid-handshake (SERVERHELLO_DONE with
+ * no forward progress, or TCP stuck in FIN_WAIT_2), with nothing in the
+ * app able to force that blocking library call to return. IWDG forces a
+ * clean device reset instead of a silent, permanent freeze. */
+#define HAL_IWDG_MODULE_ENABLED
 /*#define HAL_JPEG_MODULE_ENABLED */
 /*#define HAL_LPTIM_MODULE_ENABLED */
 /*#define HAL_LTDC_MODULE_ENABLED */

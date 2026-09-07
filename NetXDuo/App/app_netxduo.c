@@ -47,6 +47,7 @@ static VOID print_pool_status(const CHAR *label);
 static const CHAR *tls_client_state_name(UINT state);
 static VOID diag_heartbeat_entry(ULONG id);
 static VOID diag_stack_error_notify(TX_THREAD *thread_ptr);
+static VOID watchdog_timer_entry(ULONG id);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -70,6 +71,37 @@ NX_PACKET_POOL AppPool;
 static TX_TIMER DiagHeartbeatTimer;
 static volatile ULONG DiagHeartbeatT0;
 static volatile ULONG DiagHeartbeatTicks;
+
+/* Watchdog safety net: real-hardware testing surfaced the NetX/TLS stack
+ * occasionally wedging *indefinitely* mid-request -- observed once stuck
+ * at tls_client_state SERVERHELLO_DONE (mid-RSA, no forward progress) for
+ * 26+ seconds, and once with TCP established but the TLS handshake never
+ * even starting, TCP eventually dropping itself into FIN_WAIT_2 and
+ * sitting there for 80+ seconds -- in both cases the blocking NetX call
+ * (nx_web_http_client_post_secure_start(), with its own 30s wait_option)
+ * simply never returned control to AppHTTPThread at all, so there is
+ * nothing at the app level that can time this out or recover from it;
+ * only a full device reset gets it moving again.
+ *
+ * IWDG closes that gap: WatchdogTimer polls, every 2s, whether
+ * App_HTTP_Thread_Entry's endpoint loop has completed an iteration
+ * (WatchdogLastProgressTick, stamped at the top of that loop -- see
+ * below) within the last WATCHDOG_STALE_TICKS, and only refreshes the
+ * hardware watchdog while that's true. A genuine wedge stops progress
+ * being stamped, refreshes stop, and the ~20s IWDG hardware timeout
+ * resets the board on its own -- independent of ThreadX's scheduler,
+ * immune to AppHTTPThread (or anything else) being stuck in a blocking
+ * library call with no yield point. Armed only once Wi-Fi/DHCP/sensor
+ * probing have already finished (right before App_HTTP_Thread_Entry's
+ * main loop starts, see there) specifically so a slow-but-progressing
+ * boot sequence can never itself trip a spurious reset. */
+static IWDG_HandleTypeDef   hiwdg;
+static TX_TIMER              WatchdogTimer;
+static volatile ULONG        WatchdogLastProgressTick;
+/* LSI_VALUE (stm32u5xx_hal_conf.h) / IWDG_PRESCALER_256 = 32000/256 = 125 Hz
+ * counter clock; 2500 counts / 125 Hz = 20.0s hardware timeout. */
+#define WATCHDOG_IWDG_RELOAD    2500U
+#define WATCHDOG_STALE_TICKS    (15 * TX_TIMER_TICKS_PER_SECOND)
 
 ULONG IpAddress;
 ULONG NetMask;
@@ -426,6 +458,24 @@ static VOID diag_heartbeat_entry(ULONG id)
            tls_client_state_name(HttpClient.nx_web_http_client_tls_session.nx_secure_tls_client_state));
 }
 
+/* Fires every 2s, for the entire lifetime of the app once armed -- see the
+ * watchdog comment above WatchdogLastProgressTick's declaration. Runs in
+ * ThreadX's own system-timer thread context, so it keeps polling even
+ * while AppHTTPThread itself is completely wedged inside a blocking NetX
+ * call -- that's the whole point: it can only refresh the hardware
+ * watchdog while genuine forward progress is still being made. */
+static VOID watchdog_timer_entry(ULONG id)
+{
+    TX_PARAMETER_NOT_USED(id);
+
+    if ((tx_time_get() - WatchdogLastProgressTick) <= WATCHDOG_STALE_TICKS)
+    {
+        HAL_IWDG_Refresh(&hiwdg);
+    }
+    /* else: no progress in over WATCHDOG_STALE_TICKS -- stop refreshing
+     * and let the ~20s IWDG hardware timeout reset the board. */
+}
+
 /**
 * @brief  Main thread entry.
 * @param thread_input: ULONG user argument used by the thread entry
@@ -635,6 +685,34 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
      * rather than blocking the HTTP loop on it. */
     Sensors_Init();
 
+    /* Arm the watchdog only now -- Wi-Fi join, DHCP and sensor probing are
+     * all done, so from here on a stall of WATCHDOG_STALE_TICKS really
+     * does mean something's wedged, not just a slow-but-normal boot step
+     * still in progress. See the watchdog comment near
+     * WatchdogLastProgressTick's declaration above for the full story. */
+    WatchdogLastProgressTick = tx_time_get();
+#if defined(DBGMCU_APB1FZR1_DBG_IWDG_STOP)
+    /* Halt the IWDG countdown while a debugger has the core stopped at a
+     * breakpoint -- without this, pausing in the debugger for longer than
+     * the ~20s timeout resets the board out from under the debug session,
+     * which has nothing to do with a real stall. */
+    __HAL_DBGMCU_FREEZE_IWDG();
+#endif
+    hiwdg.Instance       = IWDG;
+    hiwdg.Init.Prescaler = IWDG_PRESCALER_256;
+    hiwdg.Init.Window    = IWDG_WINDOW_DISABLE;
+    hiwdg.Init.Reload    = WATCHDOG_IWDG_RELOAD;
+    if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+    {
+        printf("Watchdog: HAL_IWDG_Init failed -- continuing without it\r\n");
+    }
+    else
+    {
+        tx_timer_create(&WatchdogTimer, "Watchdog Timer", watchdog_timer_entry, 0,
+                        2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND, TX_AUTO_ACTIVATE);
+        printf("Watchdog: armed (~20s IWDG timeout, resets if a poll round stalls that long)\r\n");
+    }
+
     while (1)
     {
         printf("=== poll round #%lu: checking %lu resource(s) ===\r\n",
@@ -643,6 +721,15 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
         for (i = 0; i < Sensors_EndpointCount; i++)
         {
             const Sensors_Endpoint_t *ep = &Sensors_Endpoints[i];
+
+            /* Mark forward progress for the watchdog *before* doing this
+             * endpoint's work, not after -- see watchdog_timer_entry()
+             * above. If this specific iteration's blocking calls below
+             * wedge, this is the last timestamp that ever gets set, so
+             * staleness (and the eventual reset) is measured from the
+             * moment it actually got stuck, not from whenever the
+             * previous, successful iteration happened to finish. */
+            WatchdogLastProgressTick = tx_time_get();
 
             /* Read this one category. Content-Length has to be known up
              * front for post_secure_start() below, so this has to happen
