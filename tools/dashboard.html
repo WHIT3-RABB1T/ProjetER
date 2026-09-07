@@ -19,13 +19,66 @@
     --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 24px;
+    display: flex;
   }
+
+  #sidebar {
+    flex: none;
+    width: 200px;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--panel-border);
+    padding: 20px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #sidebar .brand {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 0 10px;
+    margin-bottom: 12px;
+  }
+  .tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 14px;
+    font-family: inherit;
+    text-align: left;
+    padding: 10px 10px;
+    cursor: pointer;
+  }
+  .tab-btn:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .tab-btn.active { background: rgba(77,163,255,0.15); color: var(--text); }
+  .tab-btn .icon { font-size: 16px; }
+
+  #content {
+    flex: 1;
+    min-width: 0;
+    padding: 24px;
+    overflow-y: auto;
+    height: 100vh;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
   header {
     display: flex;
     align-items: center;
@@ -227,22 +280,218 @@
     font-size: 14px;
     text-align: center;
   }
+
+  .crypto h1 { margin-bottom: 4px; }
+  .crypto .subtitle { color: var(--text-dim); font-size: 13px; margin: 0 0 24px; }
+  .crypto-live {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: center;
+  }
+  .crypto-live .field { display: flex; flex-direction: column; gap: 2px; }
+  .crypto-live .field .k { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .crypto-live .field .v { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+  .crypto-live .field .v.dim { color: var(--text-dim); font-weight: 400; font-style: italic; font-size: 13px; }
+
+  .crypto-section {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 18px;
+  }
+  .crypto-section h2 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .crypto-section p { color: var(--text-dim); font-size: 13.5px; line-height: 1.6; margin: 8px 0; }
+  .crypto-section p code, .crypto-section li code { font-family: var(--mono); background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; color: var(--text); font-size: 0.92em; }
+  .crypto-section ul { margin: 8px 0; padding-left: 20px; color: var(--text-dim); font-size: 13.5px; line-height: 1.7; }
+  .crypto-section ul li strong { color: var(--text); }
+
+  .suite-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  .suite-table th, .suite-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--panel-border); }
+  .suite-table th { color: var(--text-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .suite-table td { font-family: var(--mono); font-size: 12.5px; }
+  .suite-table .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: -apple-system, sans-serif; font-weight: 600; }
+  .badge.board { background: rgba(77,163,255,0.18); color: var(--accent); }
+  .badge.browser { background: rgba(62,207,142,0.18); color: var(--ok); }
+
+  .crypto-flow { display: flex; flex-direction: column; gap: 10px; margin: 14px 0; }
+  .crypto-flow .step {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    font-size: 13px;
+  }
+  .crypto-flow .step .n {
+    flex: none;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: rgba(77,163,255,0.15);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .crypto-flow .step .desc { color: var(--text-dim); line-height: 1.5; padding-top: 1px; }
+  .crypto-flow .step .desc strong { color: var(--text); }
+
+  .caveat-list li { margin-bottom: 6px; }
+  .caveat-list li::marker { color: var(--warn); }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>Board Sensor Dashboard <span id="source"></span></h1>
-  <div id="status"><span class="dot"></span><span id="status-text">waiting for first reading…</span></div>
-</header>
+<nav id="sidebar">
+  <div class="brand">Board Console</div>
+  <button class="tab-btn active" data-tab="dashboard"><span class="icon">📊</span>Dashboard</button>
+  <button class="tab-btn" data-tab="crypto"><span class="icon">🔒</span>Cryptography</button>
+</nav>
 
-<div id="grid"><!-- cards injected by renderAll() --></div>
+<main id="content">
 
-<footer>
-  Polling <code>/api/latest</code> every <span id="poll-interval-label"></span>. Click a card for its history.
-  Source: <code>Core/Src/sensors.c</code> (<code>Sensors_ReadAllJSON()</code>) via
-  <code>App_HTTP_Thread_Entry</code>'s HTTPS POST to <code>/sensors</code>.
-</footer>
+  <section id="tab-dashboard" class="tab-panel active">
+    <header>
+      <h1>Board Sensor Dashboard <span id="source"></span></h1>
+      <div id="status"><span class="dot"></span><span id="status-text">waiting for first reading…</span></div>
+    </header>
+
+    <div id="grid"><!-- cards injected by renderAll() --></div>
+
+    <footer>
+      Polling <code>/api/latest</code> every <span id="poll-interval-label"></span>. Click a card for its history.
+      Source: <code>Core/Src/sensors.c</code> (<code>Sensors_ReadAllJSON()</code>) via
+      <code>App_HTTP_Thread_Entry</code>'s HTTPS POST to <code>/sensors</code>.
+    </footer>
+  </section>
+
+  <section id="tab-crypto" class="tab-panel crypto">
+    <h1>🔒 Cryptography</h1>
+    <p class="subtitle">What's actually protecting the link between the board and this server, and what it doesn't cover.</p>
+
+    <div class="crypto-live">
+      <div class="field">
+        <span class="k">Board's last handshake</span>
+        <span class="v" id="crypto-live-summary">no TLS handshake observed from the board yet</span>
+      </div>
+      <div class="field">
+        <span class="k">Observed</span>
+        <span class="v dim" id="crypto-live-age">—</span>
+      </div>
+    </div>
+
+    <div class="crypto-section">
+      <h2>🤝 Transport: TLS 1.2, and only 1.2</h2>
+      <p>
+        Both the board's connection and this browser's are pinned to exactly <code>TLSv1.2</code> --
+        <code>ctx.minimum_version</code> and <code>ctx.maximum_version</code> are set to the same value in
+        <code>tools/http_server.py</code>. That's not a security preference so much as a hard constraint: the
+        board's TLS stack (NetX Secure, via <code>nx_secure_tls_api.h</code>) only implements TLS 1.2 at all --
+        offering anything newer would just fail to negotiate with the one client that actually matters here.
+      </p>
+    </div>
+
+    <div class="crypto-section">
+      <h2>🔑 Cipher suites -- two different clients, two different deals</h2>
+      <p>
+        The server offers four cipher suites on the <em>same</em> port, with the <em>same</em> certificate. Each
+        client picks whichever one it can actually do; there's no separate "board port" and "browser port".
+      </p>
+      <table class="suite-table">
+        <thead><tr><th>Suite</th><th>Key exchange</th><th>Bulk cipher</th><th>Integrity</th><th>Used by</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>TLS_RSA_WITH_AES_128_CBC_SHA256</td>
+            <td>Static RSA</td><td>AES-128-CBC</td><td>HMAC-SHA256</td>
+            <td><span class="badge board">board</span></td>
+          </tr>
+          <tr>
+            <td>TLS_RSA_WITH_AES_256_CBC_SHA256</td>
+            <td>Static RSA</td><td>AES-256-CBC</td><td>HMAC-SHA256</td>
+            <td><span class="badge board">board</span></td>
+          </tr>
+          <tr>
+            <td>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</td>
+            <td>ECDHE</td><td>AES-128-GCM</td><td>AEAD (built in)</td>
+            <td><span class="badge browser">browser</span></td>
+          </tr>
+          <tr>
+            <td>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</td>
+            <td>ECDHE</td><td>AES-256-GCM</td><td>AEAD (built in)</td>
+            <td><span class="badge browser">browser</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        The split exists because the board's crypto library implements no elliptic-curve or AEAD primitives at
+        all (see <code>nx_crypto_tls_ciphers</code> in <code>NetXDuo/App/nx_secure_user.h</code>) -- static-RSA
+        key exchange and AES-CBC are the only things it can do. Modern browsers, in turn, have deliberately
+        stopped offering non-forward-secret suites like those for years -- a real Firefox connecting to a
+        server offering <em>only</em> the board's two suites gets a flat refusal
+        (<code>SSL_ERROR_NO_CYPHER_OVERLAP</code>) before any page ever loads, which is exactly what happened
+        here until the two ECDHE suites were added alongside them.
+      </p>
+    </div>
+
+    <div class="crypto-section">
+      <h2>🔁 How the board's own handshake actually works</h2>
+      <div class="crypto-flow">
+        <div class="step"><span class="n">1</span><span class="desc"><strong>ClientHello</strong> -- the board proposes TLS 1.2 and its two supported cipher suites.</span></div>
+        <div class="step"><span class="n">2</span><span class="desc"><strong>ServerHello + Certificate</strong> -- this server picks one of those two suites and sends its self-signed RSA certificate.</span></div>
+        <div class="step"><span class="n">3</span><span class="desc"><strong>Certificate check</strong> -- the board compares the presented certificate byte-for-byte against the one copy it has embedded at compile time. No CA, no chain -- an exact match or nothing.</span></div>
+        <div class="step"><span class="n">4</span><span class="desc"><strong>ClientKeyExchange</strong> -- the board generates the pre-master secret itself and encrypts it directly with the server's RSA public key. This is the "static RSA" part, and the slow part: it's a 2048-bit modular exponentiation running entirely in software on the Cortex-M33, no hardware crypto offload wired up.</span></div>
+        <div class="step"><span class="n">5</span><span class="desc"><strong>Finished, both directions</strong> -- both sides derive the session keys from that pre-master secret and confirm the handshake transcript matches.</span></div>
+        <div class="step"><span class="n">6</span><span class="desc"><strong>Application data</strong> -- the JSON sensor reading goes out as one or more AES-CBC-encrypted, HMAC-SHA256-authenticated TLS records.</span></div>
+      </div>
+    </div>
+
+    <div class="crypto-section">
+      <h2>📜 The certificate, and what "trust" means here</h2>
+      <p>
+        <code>tools/gen_https_cert.sh</code> generates a self-signed 2048-bit RSA certificate (issuer == subject,
+        <code>CN=&lt;board's LAN IP&gt;</code>) with a 10-year validity window -- chosen specifically because the
+        board has no RTC or SNTP wired up, so it has no live clock to check a shorter window against anyway.
+      </p>
+      <p>
+        The board doesn't validate this certificate the way a browser validates a real one (checking a signature
+        chain up to a trusted CA). Instead, <code>tools/gen_https_cert.sh</code> also bakes the exact DER bytes of
+        this one certificate into <code>NetXDuo/App/https_ca_cert.h</code>, and the board's only check is: does
+        the certificate the server just presented match those exact bytes? That's appropriate for a closed link
+        between one known board and one known laptop on a private hotspot -- it would not be an appropriate
+        trust model for anything reachable from the wider internet.
+      </p>
+    </div>
+
+    <div class="crypto-section">
+      <h2>⚠️ Known limitations</h2>
+      <ul class="caveat-list">
+        <li><strong>No forward secrecy on the board's own connection.</strong> Static RSA key exchange means if
+          the server's private key were ever compromised, every past captured session from the board could be
+          decrypted retroactively. (The browser's ECDHE connection doesn't have this weakness.)</li>
+        <li><strong>Certificate pinning, not real CA validation.</strong> "Trusted" means "byte-identical to the
+          one copy the board was built with" -- there's no revocation, no chain, no way to rotate the cert
+          without reflashing the board.</li>
+        <li><strong>RSA runs entirely in software.</strong> This was a real, reproduced problem this session:
+          building the board's firmware at <code>-O0</code> (STM32CubeIDE's Debug default) could make individual
+          handshakes take 20+ seconds, occasionally long enough to look like a hang. Fixed by building at
+          <code>-Os</code> instead -- see the project history for the full diagnosis.</li>
+        <li><strong>TLS 1.2 only.</strong> No 1.3, because the board's NetX Secure stack doesn't implement it.</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
 
 <div id="chart-modal" class="modal-overlay" hidden>
   <div class="modal-panel" role="dialog" aria-modal="true">
@@ -407,6 +656,7 @@ async function poll() {
     }
     lastSource = data.source || null;
     updateStatus(lastSource);
+    updateCryptoLive(data.board_tls);
   } catch (e) {
     // Transient fetch failure (e.g. page loaded before the server was
     // ready) -- just let the next poll try again.
@@ -577,6 +827,32 @@ function formatAxisValue(v) {
   // Trim to a sane number of decimals for axis labels without mangling
   // integers (accel/gyro/mag axes) into "998.00".
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+// ---- Sidebar tabs ------------------------------------------------------
+
+document.getElementById("sidebar").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
+});
+
+// ---- Cryptography tab: live TLS parameters from the board's last handshake
+
+function updateCryptoLive(boardTls) {
+  const summary = document.getElementById("crypto-live-summary");
+  const age = document.getElementById("crypto-live-age");
+  if (!boardTls) {
+    summary.textContent = "no TLS handshake observed from the board yet";
+    summary.classList.add("dim");
+    age.textContent = "—";
+    return;
+  }
+  summary.classList.remove("dim");
+  summary.textContent = `${boardTls.version} / ${boardTls.cipher} (${boardTls.bits}-bit)`;
+  const ageS = ((Date.now() - boardTls.at_ms) / 1000).toFixed(1);
+  age.textContent = `${ageS}s ago`;
 }
 
 renderAll(null);

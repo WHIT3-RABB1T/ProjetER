@@ -17,15 +17,23 @@ counter, this used to send) -- either way it logs the request, enough to
 confirm the board is actually reaching this machine, now over an
 encrypted connection.
 
-GET / serves dashboard.html, a live browser dashboard (one card per
-sensor category, polling GET /api/latest every 500ms) showing whatever
-the board's most recent POST contained -- open https://<this machine's
-IP>:<port>/ in a browser (self-signed cert, so it'll warn once; proceed
-past it). Clicking a card opens a live-updating chart of that category's
-history (GET /api/history?category=<name>, polled while the chart is
-open) -- see HISTORY_WINDOW_SECONDS below for how much is kept. Any other
-GET path still gets the old plaintext greeting, e.g. for a quick
-curl-reachability check.
+GET / serves dashboard.html, a live browser dashboard with two tabs
+(sidebar, left) -- open https://<this machine's IP>:<port>/ in a browser
+(self-signed cert, so it'll warn once; proceed past it):
+  - Dashboard: one card per sensor category, polling GET /api/latest
+    every 500ms, showing whatever the board's most recent POST
+    contained. Clicking a card opens a live-updating chart of that
+    category's history (GET /api/history?category=<name>, polled while
+    the chart is open) -- see HISTORY_WINDOW_SECONDS below for how much
+    is kept.
+  - Cryptography: a reference page on the actual TLS setup (cipher
+    suites, why the board and a browser get different ones, the
+    handshake, the certificate's trust model, known limitations), plus
+    the board's real last-negotiated TLS version/cipher/bits (also from
+    /api/latest's "board_tls" field, itself sourced from _tls_by_ip
+    below) so the numbers shown are live, not just descriptive.
+Any other GET path still gets the old plaintext greeting, e.g. for a
+quick curl-reachability check.
 
 The TLS side is deliberately pinned narrow, to match exactly what the
 board's NetX Secure TLS stack can do: its ciphersuite table
@@ -87,6 +95,19 @@ _latest_reading = None    # dict, or None before the first POST ever arrives
 _latest_at_ms = None      # int, time.time()*1000 when _latest_reading was set
 _latest_source = None     # str, the board's IP at that time
 _history = collections.deque(maxlen=HISTORY_MAX_ENTRIES)  # [(t_ms, reading_dict), ...], oldest first
+
+# Actual negotiated TLS parameters (version/cipher/bits), per source IP,
+# for the dashboard's Cryptography tab to show real live numbers instead
+# of just a description of what's configured. Keyed by IP rather than one
+# single "last connection" value because the browser's own polling
+# (GET /api/latest every 500ms) would otherwise completely drown out the
+# board's much rarer connections -- looking this up by _latest_source (the
+# board's own IP, from do_POST) gets the board's negotiated parameters
+# specifically, regardless of how many browser polls happened since.
+# Unbounded but self-limiting in practice: one entry per distinct client
+# IP that has ever connected, which on a private board<->laptop link is a
+# small, fixed set (the board and whoever's browser).
+_tls_by_ip = {}
 
 
 def guess_local_ip() -> str:
@@ -201,10 +222,12 @@ class Handler(BaseHTTPRequestHandler):
         # for longer than a dict copy.
         with _state_lock:
             reading, updated_at_ms, source = _latest_reading, _latest_at_ms, _latest_source
+            board_tls = _tls_by_ip.get(source) if source else None
         payload = json.dumps({
             "reading": reading,
             "updated_at_ms": updated_at_ms,
             "source": source,
+            "board_tls": board_tls,
         }).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -366,6 +389,13 @@ class HTTPSServer(socketserver.ThreadingMixIn, HTTPServer):
             cipher_name, tls_version, secret_bits = tls_conn.cipher()
             print(f"[{time.strftime('%H:%M:%S')}] {addr[0]} -> TLS established: "
                   f"{tls_conn.version()} / {cipher_name} ({secret_bits}-bit)", flush=True)
+            with _state_lock:
+                _tls_by_ip[addr[0]] = {
+                    "version": tls_conn.version(),
+                    "cipher": cipher_name,
+                    "bits": secret_bits,
+                    "at_ms": int(time.time() * 1000),
+                }
             return tls_conn, addr
         except (ssl.SSLError, OSError) as e:
             print(f"[{time.strftime('%H:%M:%S')}] {addr[0]} -> TLS handshake failed or timed out: {e}", flush=True)
