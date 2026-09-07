@@ -1,4 +1,8 @@
-/* sensors.h -- onboard B-U585I-IOT02A sensor suite (I2C2), read out as JSON.
+/* sensors.h -- onboard B-U585I-IOT02A sensor suite (I2C2), read out as one
+ * small JSON object per sensor category, each posted to its own HTTP
+ * resource (see Sensors_Endpoints[] below and App_HTTP_Thread_Entry in
+ * NetXDuo/App/app_netxduo.c, which posts each entry in turn every poll
+ * period).
  *
  * Wraps the ST BSP drivers vendored under Drivers/BSP/{B-U585I-IOT02A,
  * Components/*} (copied from STM32Cube_FW_U5_V1.8.0 -- prebuilt ST sensor
@@ -26,38 +30,45 @@ extern "C" {
  *
  * Each of the 6 sensors is probed independently and a failure on any one
  * (missing part, I2C NAK, bad ID) is logged and does not stop the rest --
- * Sensors_ReadJSON() below simply omits whatever didn't come up. */
+ * every Sensors_Endpoints[].read below simply reports "nothing to send"
+ * (returns 0) for whatever didn't come up. */
 void Sensors_Init(void);
 
-/* Reads every sensor that initialized successfully and formats the result
- * into *buf as one compact JSON object, e.g.:
- *   {"env":{"hts221":{"temp_c":23.41,"hum_rh":41.20},
- *           "lps22hh":{"temp_c":23.60,"press_hpa":1013.25}},
- *    "motion":{"accel_mg":{"x":-12,"y":34,"z":998},
- *              "gyro_mdps":{"x":10,"y":-5,"z":2},
- *              "mag_mgauss":{"x":210,"y":-88,"z":410}},
- *    "light":{"als_raw":812,"white_raw":640},
- *    "ranging_mm":[120,-1,4300, ... ]}   (16 zones, 4x4 profile; -1 = no
- *                                         valid target in that zone)
- * A sensor that failed at Sensors_Init(), or errors on this particular
- * read, is simply left out of its object (or the whole key, if it's the
- * only member) rather than aborting the whole payload -- always as much
- * data as is actually available, never all-or-nothing.
+/* Fills *buf with one sensor category's reading as a compact JSON object
+ * (e.g. {"x":-12,"y":34,"z":998} for accelerometer, or
+ * {"hts221_c":23.41,"lps22hh_c":23.60} for temperature) and returns the
+ * number of bytes written, NOT including the terminating NUL (i.e. the
+ * value to pass as an HTTP Content-Length). Returns 0 -- buf left
+ * untouched -- if every sensor behind this category failed at
+ * Sensors_Init() or errored on this particular read; the caller
+ * (App_HTTP_Thread_Entry) is expected to just skip posting that resource
+ * for this round rather than send an empty/placeholder body.
  *
  * Values are hand-formatted as fixed-point (2 decimal places) rather than
  * with printf's "%f": this project shows no existing use of float-format
  * printf/snprintf anywhere, and STM32CubeIDE's default nano.specs newlib
  * build does not support it unless explicitly re-linked with
  * "-u _printf_float" -- easy to get silently-wrong output from, so this
- * sidesteps it entirely instead of assuming that flag is set.
- *
- * Returns the number of bytes written to *buf, NOT including the
- * terminating NUL (i.e. the value to pass as an HTTP Content-Length),
- * or 0 if buf/buf_size are unusable. The buffer is always left
- * NUL-terminated on success. Recommended buf_size: >= 512 bytes (a full
- * reading with every sensor present is a few hundred bytes; 512 leaves
- * headroom without probing every sensor's exact worst case). */
-uint32_t Sensors_ReadJSON(char *buf, uint32_t buf_size);
+ * sidesteps it entirely instead of assuming that flag is set. */
+typedef uint32_t (*Sensors_ReadFn)(char *buf, uint32_t buf_size);
+
+typedef struct
+{
+    const char     *resource; /* HTTP resource path this category posts to, e.g. "/temperature" */
+    Sensors_ReadFn  read;     /* see Sensors_ReadFn above */
+} Sensors_Endpoint_t;
+
+/* One entry per sensor category -- temperature, humidity, pressure,
+ * accelerometer, gyroscope, magnetometer, light, ranging.
+ * App_HTTP_Thread_Entry walks this whole table once per poll period and
+ * POSTs each non-empty reading to its own resource, so e.g. temperature
+ * data always lands on /temperature and accelerometer data always lands
+ * on /accelerometer, as separate requests. Recommended body buffer size
+ * for any single entry: >= 512 bytes (the largest single category, ranging
+ * -- {"zones":[...]} at the 4x4 profile -- is a few hundred bytes; 512
+ * leaves headroom without probing the exact worst case). */
+extern const Sensors_Endpoint_t Sensors_Endpoints[];
+extern const uint32_t Sensors_EndpointCount;
 
 #ifdef __cplusplus
 }

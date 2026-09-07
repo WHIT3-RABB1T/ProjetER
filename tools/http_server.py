@@ -3,17 +3,20 @@
 http_server.py — minimal HTTPS server for the board's periodic HTTP client.
 
 The board (NetXDuo/App/app_netxduo.c, App_HTTP_Thread_Entry) opens a fresh
-TLS connection every HTTP_POLL_PERIOD_SEC seconds and POSTs a JSON snapshot
-of its onboard sensor suite (see Core/Src/sensors.c -- HTS221, LPS22HH,
-ISM330DHCX, IIS2MDC, VEML3235, VL53L5CX) as the request body to
-HTTP_RESOURCE (see NetXDuo/App/app_netxduo.h) at
-HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT. This answers POSTs by parsing
-and logging the reading (falling back to just printing the raw body if it
-isn't valid JSON -- e.g. an older firmware build still sending the plain
-decimal counter this used to send), and still answers plain GETs (from a
-browser or curl) with a small greeting — either way it logs the request,
-enough to confirm the board is actually reaching this machine, now over an
-encrypted connection.
+TLS connection every HTTP_POLL_PERIOD_SEC seconds and, for each sensor
+category that has a reading, POSTs that category's own small JSON object to
+its own resource path -- Core/Src/sensors.c's Sensors_Endpoints[] table
+lists /temperature, /humidity, /pressure, /accelerometer, /gyroscope,
+/magnetometer, /light and /ranging, each a separate request -- at
+HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT. This answers POSTs by looking
+up the resource path in RESOURCE_FORMATTERS below and logging the reading
+in that category's own shape (falling back to just printing the raw JSON
+for an unrecognized path, or the raw body verbatim if it isn't valid JSON
+at all -- e.g. an older firmware build still sending the single combined
+reading, or the plain decimal counter, this used to send), and still
+answers plain GETs (from a browser or curl) with a small greeting — either
+way it logs the request, enough to confirm the board is actually reaching
+this machine, now over an encrypted connection.
 
 The TLS side is deliberately pinned narrow, to match exactly what the
 board's NetX Secure TLS stack can do: its ciphersuite table
@@ -60,44 +63,46 @@ def guess_local_ip() -> str:
         s.close()
 
 
-def format_reading(reading: dict) -> list:
-    """Turns one sensors.c JSON reading into a handful of human-readable log
-    lines. Every key is optional -- Sensors_ReadJSON() on the board omits
-    whatever sensor didn't initialize or errored on that particular poll --
-    so this only prints what's actually present, in whatever shape it's in,
-    rather than assuming a fixed schema."""
-    lines = []
+def format_generic(reading: dict) -> str:
+    """Fallback formatter: just key=value for every field, in whatever
+    shape the reading actually has -- used for any resource that doesn't
+    need special-cased formatting (temperature, humidity, pressure, light),
+    and for any resource path this server doesn't recognize at all."""
+    if not reading:
+        return "(empty reading)"
+    return ", ".join(f"{k}={v}" for k, v in reading.items())
 
-    env = reading.get("env", {})
-    hts221 = env.get("hts221")
-    if hts221:
-        parts = [f"{k}={v}" for k, v in hts221.items()]
-        lines.append(f"env.hts221:  {', '.join(parts)}")
-    lps22hh = env.get("lps22hh")
-    if lps22hh:
-        parts = [f"{k}={v}" for k, v in lps22hh.items()]
-        lines.append(f"env.lps22hh: {', '.join(parts)}")
 
-    motion = reading.get("motion", {})
-    for key, label in (("accel_mg", "accel (mg)  "), ("gyro_mdps", "gyro (mdps) "),
-                       ("mag_mgauss", "mag (mgauss)")):
-        axes = motion.get(key)
-        if axes:
-            lines.append(f"motion.{label}: x={axes.get('x')}, y={axes.get('y')}, z={axes.get('z')}")
+def format_axes(unit_label: str):
+    """Builds a formatter for one of the three ISM330DHCX/IIS2MDC axis
+    readings (accelerometer/gyroscope/magnetometer) -- each is just
+    {"x":N,"y":N,"z":N} in a different unit."""
+    def fmt(reading: dict) -> str:
+        return f"x={reading.get('x')}, y={reading.get('y')}, z={reading.get('z')} ({unit_label})"
+    return fmt
 
-    light = reading.get("light")
-    if light:
-        parts = [f"{k}={v}" for k, v in light.items()]
-        lines.append(f"light:       {', '.join(parts)}")
 
-    ranging = reading.get("ranging_mm")
-    if ranging is not None:
-        lines.append(f"ranging_mm:  {ranging}")
+def format_ranging(reading: dict) -> str:
+    zones = reading.get("zones")
+    if zones is None:
+        return format_generic(reading)
+    return f"{len(zones)} zone(s): {zones}"
 
-    if not lines:
-        lines.append(f"(empty or unrecognized reading: {reading!r})")
 
-    return lines
+# One formatter per Sensors_Endpoints[] resource (Core/Src/sensors.c) --
+# an unrecognized path (e.g. a future sensor category, or an older
+# firmware build's resource) just falls back to format_generic via
+# do_POST's dict.get() below rather than failing.
+RESOURCE_FORMATTERS = {
+    "/temperature": format_generic,
+    "/humidity": format_generic,
+    "/pressure": format_generic,
+    "/accelerometer": format_axes("mg"),
+    "/gyroscope": format_axes("mdps"),
+    "/magnetometer": format_axes("mgauss"),
+    "/light": format_generic,
+    "/ranging": format_ranging,
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -113,23 +118,35 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        # The board (App_HTTP_Thread_Entry / sensors.c) POSTs one JSON
-        # object as the whole request body, no other encoding — just read
-        # exactly Content-Length bytes back off the socket.
+        # The board (App_HTTP_Thread_Entry / sensors.c) POSTs one sensor
+        # category's JSON object per request, to that category's own
+        # resource path (self.path) -- e.g. /accelerometer,
+        # /temperature -- no other encoding, so just read exactly
+        # Content-Length bytes back off the socket and look self.path up
+        # in RESOURCE_FORMATTERS to know how to print it.
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length)
 
         try:
             reading = json.loads(raw.decode())
-            for line in format_reading(reading):
-                print(f"    {line}", flush=True)
-            reply = b"ack\n"
         except (ValueError, UnicodeDecodeError) as e:
             # Not JSON -- print it verbatim rather than fail the request;
-            # this is also what a pre-sensors firmware build's plain
-            # decimal counter body looks like.
-            print(f"    non-JSON body ({e}): {raw!r}", flush=True)
+            # this is also what a pre-multi-endpoint firmware build's
+            # single combined reading, or the even older plain decimal
+            # counter, looks like.
+            print(f"    non-JSON body on {self.path} ({e}): {raw!r}", flush=True)
             reply = b"ack (unparsed)\n"
+        else:
+            formatter = RESOURCE_FORMATTERS.get(self.path, format_generic)
+            if isinstance(reading, dict):
+                try:
+                    line = formatter(reading)
+                except Exception as e:
+                    line = f"(couldn't format: {e}) {reading!r}"
+            else:
+                line = repr(reading)
+            print(f"    {self.path}: {line}", flush=True)
+            reply = b"ack\n"
 
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")

@@ -571,18 +571,28 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
     return(NX_SUCCESS);
 }
 
-/* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_SEC seconds, opens a
- * fresh TLS connection to HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT and
- * POSTs a JSON snapshot of the onboard sensor suite (see sensors.h/.c --
- * HTS221, LPS22HH, ISM330DHCX, IIS2MDC, VEML3235, VL53L5CX, all on I2C2)
- * as the request body to HTTP_RESOURCE, prints the (decrypted) response
- * body, and tears the client back down — one clean create/handshake/
- * POST/delete cycle per request, matching the lifecycle NetX Duo's own
- * HTTP client POST sample (netx_web_post_basic_test.c) uses:
+/* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_SEC seconds, walks
+ * Sensors_Endpoints[] (sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX,
+ * IIS2MDC, VEML3235, VL53L5CX, all on I2C2) and, for every category that
+ * actually has a reading this round, opens a fresh TLS connection to
+ * HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT and POSTs that one category's
+ * JSON object to its own resource (temperature to /temperature,
+ * accelerometer data to /accelerometer, and so on) — so different kinds of
+ * sensor data land on different endpoints on the server, not one combined
+ * blob. Each POST prints the (decrypted) response body and tears its
+ * client back down before moving to the next resource — one clean create/
+ * handshake/POST/delete cycle per request, matching the lifecycle NetX
+ * Duo's own HTTP client POST sample (netx_web_post_basic_test.c) uses:
  * post_secure_start (runs the TLS handshake via tls_setup_callback above,
  * then sends headers + Content-Length over the now-encrypted connection)
  * -> request_packet_allocate -> nx_packet_data_append (fills the body) ->
- * put_packet (encrypts and sends it). */
+ * put_packet (encrypts and sends it).
+ *
+ * Doing a full TLS handshake per resource, sequentially, means one poll
+ * round now takes roughly (number of categories with data) times as long
+ * as a single POST used to -- HTTP_POLL_PERIOD_SEC is the sleep *between*
+ * rounds, not a hard deadline for one, so this only stretches the real
+ * end-to-end cadence, it never overlaps two rounds. */
 static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 {
     UINT        ret;
@@ -592,13 +602,15 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     NX_PACKET  *receive_packet;
     UCHAR       receive_buffer[256];
     ULONG       bytes;
-    ULONG       counter = 0;
+    ULONG       round = 0;
+    uint32_t    i;
     /* static, not a plain local: this thread's stack is already sized
      * tight against the RSA call chain (see the 8x DEFAULT_MEMORY_SIZE
      * comment in MX_NetXDuo_Init below) -- putting 768 more bytes there
      * on top of send/receive buffers would eat back into that margin for
      * no reason, since this buffer only ever needs one writer at a time
-     * from this one thread anyway. */
+     * from this one thread anyway. Reused for every resource in the
+     * endpoint loop below, one category's reading at a time. */
     static CHAR body[768];
     UINT        body_len;
     ULONG       t0;
@@ -609,151 +621,158 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     server_ip_address.nxd_ip_version = NX_IP_VERSION_V4;
     server_ip_address.nxd_ip_address.v4 = HTTP_SERVER_ADDRESS;
 
-    printf("HTTPS POST client ready. Target https://%u.%u.%u.%u:%d%s\r\n",
+    printf("HTTPS POST client ready. Target https://%u.%u.%u.%u:%d, %lu sensor endpoint(s)\r\n",
            (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
            (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
            (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
            (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
-           HTTP_SERVER_HTTPS_PORT, HTTP_RESOURCE);
+           HTTP_SERVER_HTTPS_PORT, (unsigned long)Sensors_EndpointCount);
 
     /* Probe the sensor suite once, up front: it's independent of Wi-Fi/DHCP
      * (I2C2, not the network), each of the 6 sensors self-reports OK/FAILED
-     * over the same serial log, and Sensors_ReadJSON() below simply omits
-     * whatever didn't come up rather than blocking the HTTP loop on it. */
+     * over the same serial log, and every Sensors_Endpoints[].read below
+     * simply reports "nothing to send" (0) for whatever didn't come up,
+     * rather than blocking the HTTP loop on it. */
     Sensors_Init();
 
     while (1)
     {
-        /* window_size bumped 1536 -> 8192: found via `ss -i` on the server
-         * while a connection sat stuck -- mss:768, and the server had been
-         * retransmitting the same segment for 4.5 minutes (retrans:1/12,
-         * bytes_acked stuck at exactly 768 = one segment) because our
-         * 1536-byte window only ever allowed 2 segments in flight, and
-         * once the second one needed a retry, there was no window room
-         * left to make progress. ServerHello + our ~800-byte self-signed
-         * Certificate + ServerHelloDone need more than 1536 bytes of
-         * simultaneous in-flight room at 768 bytes/segment; this is the
-         * exact same class of bug as the packet-pool-too-small issue this
-         * file already documents for TLS (10 -> 32 packets) -- a value
-         * sized for plain HTTP, never revisited when TLS was layered on
-         * top. 8192 is comfortably within AppPool's ~48KB capacity. */
-        ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
-        if (ret != NX_SUCCESS)
-        {
-            printf("HTTP client create failed: 0x%02X\r\n", ret);
-            tx_thread_sleep(HTTP_POLL_PERIOD_SEC * TX_TIMER_TICKS_PER_SECOND);
-            continue;
-        }
+        printf("=== poll round #%lu: checking %lu resource(s) ===\r\n",
+               round, (unsigned long)Sensors_EndpointCount);
 
-        /* Read every sensor that's up and format the result as one JSON
-         * body -- see sensors.h. Content-Length has to be known up front
-         * for post_secure_start() below, so this has to happen before the
-         * TLS handshake even starts, not while streaming the body out. */
-        body_len = (UINT)Sensors_ReadJSON(body, sizeof(body));
-
-        printf("--- POST attempt #%lu: connecting to %u.%u.%u.%u:%d ---\r\n",
-               counter,
-               (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
-               (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
-               (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
-               (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
-               HTTP_SERVER_HTTPS_PORT);
-
-        /* post_secure_start runs the TLS handshake (via tls_setup_callback
-         * above) and then, over the now-encrypted connection, sends the
-         * request line + headers (including Content-Length: body_len
-         * from the total_bytes argument below); the body itself goes out
-         * separately via put_packet.
-         *
-         * Timeout bumped from 5s to 30s as a diagnostic: the last capture
-         * showed a real handshake in progress (ClientHello sent, the
-         * server's ~800-byte self-signed certificate received back, ACKs
-         * both ways) but the log was cut before any pass/fail line printed
-         * afterward, and we don't yet know whether it finished or actually
-         * timed out. nx_crypto_rsa.c has no yield points and does its
-         * modular exponentiation entirely in software (no PKA hardware
-         * offload wired up), so the remaining RSA-heavy steps -- verifying
-         * the server's signature, encrypting the pre-master secret with
-         * its 2048-bit public key -- can plausibly run past 5s on a
-         * Cortex-M33. This 30s ceiling plus the elapsed-time print below
-         * will tell us definitively: if it now succeeds and reports, say,
-         * 6-10s, that confirms it's a pure timeout tuning issue. If it
-         * still fails/hangs well past 5s too, the cause is something
-         * else and 5s was never actually the constraint. */
-        print_pool_status("before post_secure_start");
-        t0 = tx_time_get();
-        /* Arm the heartbeat: every 2s from here until the call returns,
-         * diag_heartbeat_entry() prints elapsed time + pool + TCP socket
-         * state -- this is what turns the previously-silent ~20+ second
-         * gap during the handshake into a live trace. */
-        DiagHeartbeatT0 = t0;
-        DiagHeartbeatTicks = 0;
-        tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
-        tx_timer_activate(&DiagHeartbeatTimer);
-        ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
-                                                    HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
-                                                    body_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
-        tx_timer_deactivate(&DiagHeartbeatTimer);
-        elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
-        print_pool_status("after post_secure_start");
-        if (ret != NX_SUCCESS)
+        for (i = 0; i < Sensors_EndpointCount; i++)
         {
-            printf("POST (TLS) start failed: 0x%02X after %lu ms\r\n", ret, elapsed_ms);
-        }
-        else
-        {
-            printf("TLS handshake + HTTP headers sent ok after %lu ms, sending body...\r\n", elapsed_ms);
-            ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
-                                                              5 * NX_IP_PERIODIC_RATE);
+            const Sensors_Endpoint_t *ep = &Sensors_Endpoints[i];
+
+            /* Read this one category. Content-Length has to be known up
+             * front for post_secure_start() below, so this has to happen
+             * before the TLS handshake even starts, not while streaming
+             * the body out. A 0 return means this category's sensor(s)
+             * aren't up (or errored on this particular read) -- skip the
+             * POST entirely instead of sending an empty/placeholder body. */
+            body_len = (UINT)ep->read(body, sizeof(body));
+            if (body_len == 0)
+            {
+                printf("--- %s: no data this round, skipping ---\r\n", ep->resource);
+                continue;
+            }
+
+            /* window_size bumped 1536 -> 8192: found via `ss -i` on the server
+             * while a connection sat stuck -- mss:768, and the server had been
+             * retransmitting the same segment for 4.5 minutes (retrans:1/12,
+             * bytes_acked stuck at exactly 768 = one segment) because our
+             * 1536-byte window only ever allowed 2 segments in flight, and
+             * once the second one needed a retry, there was no window room
+             * left to make progress. ServerHello + our ~800-byte self-signed
+             * Certificate + ServerHelloDone need more than 1536 bytes of
+             * simultaneous in-flight room at 768 bytes/segment; this is the
+             * exact same class of bug as the packet-pool-too-small issue this
+             * file already documents for TLS (10 -> 32 packets) -- a value
+             * sized for plain HTTP, never revisited when TLS was layered on
+             * top. 8192 is comfortably within AppPool's ~48KB capacity. */
+            ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
             if (ret != NX_SUCCESS)
             {
-                printf("POST packet allocate failed: 0x%02X\r\n", ret);
+                printf("HTTP client create failed: 0x%02X\r\n", ret);
+                continue;
+            }
+
+            printf("--- POST %s: connecting to %u.%u.%u.%u:%d ---\r\n",
+                   ep->resource,
+                   (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
+                   (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
+                   (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
+                   (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
+                   HTTP_SERVER_HTTPS_PORT);
+
+            /* post_secure_start runs the TLS handshake (via tls_setup_callback
+             * above) and then, over the now-encrypted connection, sends the
+             * request line + headers (including Content-Length: body_len
+             * from the total_bytes argument below); the body itself goes out
+             * separately via put_packet.
+             *
+             * 30s timeout: nx_crypto_rsa.c has no yield points and does its
+             * modular exponentiation entirely in software (no PKA hardware
+             * offload wired up), so the RSA-heavy steps -- verifying the
+             * server's signature, encrypting the pre-master secret with its
+             * 2048-bit public key -- can plausibly run past a few seconds on
+             * a Cortex-M33; the elapsed-time print below shows the real cost
+             * of each individual handshake. */
+            print_pool_status("before post_secure_start");
+            t0 = tx_time_get();
+            /* Arm the heartbeat: every 2s from here until the call returns,
+             * diag_heartbeat_entry() prints elapsed time + pool + TCP socket
+             * state -- this is what turns a previously-silent multi-second
+             * gap during the handshake into a live trace. */
+            DiagHeartbeatT0 = t0;
+            DiagHeartbeatTicks = 0;
+            tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
+            tx_timer_activate(&DiagHeartbeatTimer);
+            ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
+                                                        ep->resource, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
+                                                        body_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
+            tx_timer_deactivate(&DiagHeartbeatTimer);
+            elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
+            print_pool_status("after post_secure_start");
+            if (ret != NX_SUCCESS)
+            {
+                printf("POST (TLS) start failed: 0x%02X after %lu ms\r\n", ret, elapsed_ms);
             }
             else
             {
-                nx_packet_data_append(send_packet, body, body_len, &AppPool,
-                                      5 * NX_IP_PERIODIC_RATE);
-
-                ret = nx_web_http_client_put_packet(&HttpClient, send_packet,
-                                                    5 * NX_IP_PERIODIC_RATE);
+                printf("TLS handshake + HTTP headers sent ok after %lu ms, sending body...\r\n", elapsed_ms);
+                ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
+                                                                  5 * NX_IP_PERIODIC_RATE);
                 if (ret != NX_SUCCESS)
                 {
-                    printf("POST send failed: 0x%02X\r\n", ret);
-                    nx_packet_release(send_packet);
+                    printf("POST packet allocate failed: 0x%02X\r\n", ret);
                 }
                 else
                 {
-                    /* Drain and print the response body, one packet at a time. */
-                    get_status = NX_SUCCESS;
-                    while (get_status != NX_WEB_HTTP_GET_DONE)
-                    {
-                        get_status = nx_web_http_client_response_body_get(&HttpClient, &receive_packet,
-                                                                           5 * NX_IP_PERIODIC_RATE);
+                    nx_packet_data_append(send_packet, body, body_len, &AppPool,
+                                          5 * NX_IP_PERIODIC_RATE);
 
-                        if (get_status != NX_SUCCESS && get_status != NX_WEB_HTTP_GET_DONE)
+                    ret = nx_web_http_client_put_packet(&HttpClient, send_packet,
+                                                        5 * NX_IP_PERIODIC_RATE);
+                    if (ret != NX_SUCCESS)
+                    {
+                        printf("POST send failed: 0x%02X\r\n", ret);
+                        nx_packet_release(send_packet);
+                    }
+                    else
+                    {
+                        /* Drain and print the response body, one packet at a time. */
+                        get_status = NX_SUCCESS;
+                        while (get_status != NX_WEB_HTTP_GET_DONE)
                         {
-                            printf("POST response read failed: 0x%02X\r\n", get_status);
-                            break;
+                            get_status = nx_web_http_client_response_body_get(&HttpClient, &receive_packet,
+                                                                               5 * NX_IP_PERIODIC_RATE);
+
+                            if (get_status != NX_SUCCESS && get_status != NX_WEB_HTTP_GET_DONE)
+                            {
+                                printf("POST response read failed: 0x%02X\r\n", get_status);
+                                break;
+                            }
+
+                            bytes = 0;
+                            nx_packet_data_extract_offset(receive_packet, 0, receive_buffer,
+                                                          sizeof(receive_buffer) - 1, &bytes);
+                            receive_buffer[bytes] = 0;
+                            printf("POST %s <- %s -> %s\r\n", ep->resource, body,
+                                   (char *)receive_buffer);
+                            nx_packet_release(receive_packet);
                         }
 
-                        bytes = 0;
-                        nx_packet_data_extract_offset(receive_packet, 0, receive_buffer,
-                                                      sizeof(receive_buffer) - 1, &bytes);
-                        receive_buffer[bytes] = 0;
-                        printf("POST %s <- %s -> %s\r\n", HTTP_RESOURCE, body,
-                               (char *)receive_buffer);
-                        nx_packet_release(receive_packet);
+                        HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
                     }
-
-                    HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
-                    counter++;
                 }
             }
+
+            nx_web_http_client_delete(&HttpClient);
+            print_pool_status("after client delete");
         }
 
-        nx_web_http_client_delete(&HttpClient);
-        print_pool_status("after client delete");
-
+        round++;
         tx_thread_sleep(HTTP_POLL_PERIOD_SEC * TX_TIMER_TICKS_PER_SECOND);
     }
 }

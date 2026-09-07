@@ -124,7 +124,9 @@ extern "C" {
 #define HTTP_SERVER_HTTPS_PORT   8443    /* tools/http_server.py's HTTPS listener -- rerun tools/gen_https_cert.sh
                                              if this IP/host ever changes, so https_ca_cert.h's embedded trust
                                              anchor still matches the cert the server presents */
-#define HTTP_RESOURCE            "/counter"
+/* No single HTTP_RESOURCE anymore -- each sensor category posts to its own
+ * resource path, see Sensors_Endpoints[] in Core/Src/sensors.c
+ * (/temperature, /accelerometer, /gyroscope, etc). */
 #define HTTP_POLL_PERIOD_SEC     2
 /* USER CODE END EC */
 
