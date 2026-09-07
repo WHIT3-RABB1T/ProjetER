@@ -3,7 +3,7 @@
 http_server.py — minimal HTTPS server for the board's periodic HTTP client.
 
 The board (NetXDuo/App/app_netxduo.c, App_HTTP_Thread_Entry) opens a fresh
-TLS connection every HTTP_POLL_PERIOD_SEC seconds and, for each sensor
+TLS connection every HTTP_POLL_PERIOD_MS milliseconds and, for each sensor
 category that has a reading, POSTs that category's own small JSON object to
 its own resource path -- Core/Src/sensors.c's Sensors_Endpoints[] table
 lists /temperature, /humidity, /pressure, /accelerometer, /gyroscope,

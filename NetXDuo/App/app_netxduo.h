@@ -127,7 +127,15 @@ extern "C" {
 /* No single HTTP_RESOURCE anymore -- each sensor category posts to its own
  * resource path, see Sensors_Endpoints[] in Core/Src/sensors.c
  * (/temperature, /accelerometer, /gyroscope, etc). */
-#define HTTP_POLL_PERIOD_SEC     2
+/* Sleep between poll rounds, in milliseconds (not whole seconds -- a
+ * round already does up to Sensors_EndpointCount sequential TLS
+ * handshakes at ~450-650ms each, so this only controls the *extra* gap
+ * after all of them finish, not the per-sensor latency; kept in ms so it
+ * can be tuned finer than 1s increments). Was a flat 2s; cut to 300ms to
+ * get fresh readings out sooner -- still nonzero so the thread always
+ * yields briefly between rounds rather than immediately hammering a new
+ * connection. */
+#define HTTP_POLL_PERIOD_MS      300
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

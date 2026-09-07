@@ -621,7 +621,7 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
     return(NX_SUCCESS);
 }
 
-/* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_SEC seconds, walks
+/* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_MS milliseconds, walks
  * Sensors_Endpoints[] (sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX,
  * IIS2MDC, VEML3235, VL53L5CX, all on I2C2) and, for every category that
  * actually has a reading this round, opens a fresh TLS connection to
@@ -640,7 +640,7 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
  *
  * Doing a full TLS handshake per resource, sequentially, means one poll
  * round now takes roughly (number of categories with data) times as long
- * as a single POST used to -- HTTP_POLL_PERIOD_SEC is the sleep *between*
+ * as a single POST used to -- HTTP_POLL_PERIOD_MS is the sleep *between*
  * rounds, not a hard deadline for one, so this only stretches the real
  * end-to-end cadence, it never overlaps two rounds. */
 static VOID App_HTTP_Thread_Entry(ULONG thread_input)
@@ -778,13 +778,26 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
              * from the total_bytes argument below); the body itself goes out
              * separately via put_packet.
              *
-             * 30s timeout: nx_crypto_rsa.c has no yield points and does its
-             * modular exponentiation entirely in software (no PKA hardware
-             * offload wired up), so the RSA-heavy steps -- verifying the
-             * server's signature, encrypting the pre-master secret with its
-             * 2048-bit public key -- can plausibly run past a few seconds on
-             * a Cortex-M33; the elapsed-time print below shows the real cost
-             * of each individual handshake. */
+             * Timeout bumped down from 30s to 8s: real-hardware testing
+             * showed occasional TCP connects that never get a response at
+             * all (SYN_SENT forever -- real Wi-Fi packet loss, not
+             * anything this code can fix) and, separately, failed
+             * connects whose internal cleanup took roughly *double* the
+             * configured wait_option to actually return an error (30s
+             * requested -> ~60-70s observed before the call gave back
+             * control) -- so the old 30s ceiling meant one bad connection
+             * could stall the whole endpoint loop for over a minute. 8s is
+             * comfortably above every successful handshake actually
+             * observed (~450-650ms), so this shouldn't cut off anything
+             * that was going to succeed anyway, just abandon dead
+             * connections faster and let the loop move on to the next
+             * resource sooner. This does NOT bound nx_crypto_rsa.c's own
+             * modular exponentiation, though (no yield points, done
+             * entirely in software -- can't be preempted or timed out by
+             * anything short of the IWDG watchdog above), so a genuine
+             * stuck-mid-RSA handshake still relies on that as the
+             * backstop, same as before. The elapsed-time print below shows
+             * the real cost of each individual handshake either way. */
             print_pool_status("before post_secure_start");
             t0 = tx_time_get();
             /* Arm the heartbeat: every 2s from here until the call returns,
@@ -797,7 +810,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             tx_timer_activate(&DiagHeartbeatTimer);
             ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                         ep->resource, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
-                                                        body_len, tls_setup_callback, 30 * NX_IP_PERIODIC_RATE);
+                                                        body_len, tls_setup_callback, 8 * NX_IP_PERIODIC_RATE);
             tx_timer_deactivate(&DiagHeartbeatTimer);
             elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
             print_pool_status("after post_secure_start");
@@ -860,7 +873,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
         }
 
         round++;
-        tx_thread_sleep(HTTP_POLL_PERIOD_SEC * TX_TIMER_TICKS_PER_SECOND);
+        tx_thread_sleep((HTTP_POLL_PERIOD_MS * TX_TIMER_TICKS_PER_SECOND) / 1000);
     }
 }
 /* USER CODE END 1 */
