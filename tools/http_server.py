@@ -3,20 +3,20 @@
 http_server.py — minimal HTTPS server for the board's periodic HTTP client.
 
 The board (NetXDuo/App/app_netxduo.c, App_HTTP_Thread_Entry) opens a fresh
-TLS connection every HTTP_POLL_PERIOD_MS milliseconds and, for each sensor
-category that has a reading, POSTs that category's own small JSON object to
-its own resource path -- Core/Src/sensors.c's Sensors_Endpoints[] table
-lists /temperature, /humidity, /pressure, /accelerometer, /gyroscope,
-/magnetometer, /light and /ranging, each a separate request -- at
-HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT. This answers POSTs by looking
-up the resource path in RESOURCE_FORMATTERS below and logging the reading
-in that category's own shape (falling back to just printing the raw JSON
-for an unrecognized path, or the raw body verbatim if it isn't valid JSON
-at all -- e.g. an older firmware build still sending the single combined
-reading, or the plain decimal counter, this used to send), and still
-answers plain GETs (from a browser or curl) with a small greeting — either
-way it logs the request, enough to confirm the board is actually reaching
-this machine, now over an encrypted connection.
+TLS connection every HTTP_POLL_PERIOD_MS milliseconds and POSTs one
+combined JSON reading of the whole onboard sensor suite (Core/Src/sensors.c,
+Sensors_ReadAllJSON() -- one key per category: temperature, humidity,
+pressure, accelerometer, gyroscope, magnetometer, light) to HTTP_RESOURCE
+("/sensors") at HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT. This answers
+POSTs by looking up each top-level key in CATEGORY_FORMATTERS below and
+logging the reading in that category's own shape (falling back to a plain
+key=value dump for an unrecognized category, or printing the raw body
+verbatim if it isn't valid JSON at all -- e.g. an older firmware build
+still sending one-object-per-resource, or the even older plain decimal
+counter, this used to send), and still answers plain GETs (from a browser
+or curl) with a small greeting — either way it logs the request, enough to
+confirm the board is actually reaching this machine, now over an
+encrypted connection.
 
 The TLS side is deliberately pinned narrow, to match exactly what the
 board's NetX Secure TLS stack can do: its ciphersuite table
@@ -65,9 +65,9 @@ def guess_local_ip() -> str:
 
 def format_generic(reading: dict) -> str:
     """Fallback formatter: just key=value for every field, in whatever
-    shape the reading actually has -- used for any resource that doesn't
+    shape the reading actually has -- used for any category that doesn't
     need special-cased formatting (temperature, humidity, pressure, light),
-    and for any resource path this server doesn't recognize at all."""
+    and for any category this server doesn't recognize at all."""
     if not reading:
         return "(empty reading)"
     return ", ".join(f"{k}={v}" for k, v in reading.items())
@@ -89,19 +89,19 @@ def format_ranging(reading: dict) -> str:
     return f"{len(zones)} zone(s): {zones}"
 
 
-# One formatter per Sensors_Endpoints[] resource (Core/Src/sensors.c) --
-# an unrecognized path (e.g. a future sensor category, or an older
-# firmware build's resource) just falls back to format_generic via
-# do_POST's dict.get() below rather than failing.
-RESOURCE_FORMATTERS = {
-    "/temperature": format_generic,
-    "/humidity": format_generic,
-    "/pressure": format_generic,
-    "/accelerometer": format_axes("mg"),
-    "/gyroscope": format_axes("mdps"),
-    "/magnetometer": format_axes("mgauss"),
-    "/light": format_generic,
-    "/ranging": format_ranging,
+# One formatter per top-level key Sensors_ReadAllJSON() (Core/Src/sensors.c)
+# can put in the combined reading -- an unrecognized key (e.g. a future
+# sensor category) just falls back to format_generic via do_POST's
+# dict.get() below rather than failing.
+CATEGORY_FORMATTERS = {
+    "temperature": format_generic,
+    "humidity": format_generic,
+    "pressure": format_generic,
+    "accelerometer": format_axes("mg"),
+    "gyroscope": format_axes("mdps"),
+    "magnetometer": format_axes("mgauss"),
+    "light": format_generic,
+    "ranging": format_ranging,
 }
 
 
@@ -118,12 +118,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        # The board (App_HTTP_Thread_Entry / sensors.c) POSTs one sensor
-        # category's JSON object per request, to that category's own
-        # resource path (self.path) -- e.g. /accelerometer,
-        # /temperature -- no other encoding, so just read exactly
-        # Content-Length bytes back off the socket and look self.path up
-        # in RESOURCE_FORMATTERS to know how to print it.
+        # The board (App_HTTP_Thread_Entry / sensors.c) POSTs one combined
+        # JSON object per request -- {"temperature":{...},
+        # "accelerometer":{...}, ...}, one key per sensor category that
+        # had data this round -- no other encoding, so just read exactly
+        # Content-Length bytes back off the socket, then print each
+        # top-level key using CATEGORY_FORMATTERS to know its shape.
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length)
 
@@ -131,21 +131,23 @@ class Handler(BaseHTTPRequestHandler):
             reading = json.loads(raw.decode())
         except (ValueError, UnicodeDecodeError) as e:
             # Not JSON -- print it verbatim rather than fail the request;
-            # this is also what a pre-multi-endpoint firmware build's
-            # single combined reading, or the even older plain decimal
-            # counter, looks like.
+            # this is also what an even older firmware build's plain
+            # decimal counter looks like.
             print(f"    non-JSON body on {self.path} ({e}): {raw!r}", flush=True)
             reply = b"ack (unparsed)\n"
         else:
-            formatter = RESOURCE_FORMATTERS.get(self.path, format_generic)
-            if isinstance(reading, dict):
-                try:
-                    line = formatter(reading)
-                except Exception as e:
-                    line = f"(couldn't format: {e}) {reading!r}"
+            if not isinstance(reading, dict):
+                print(f"    {self.path}: {reading!r}", flush=True)
+            elif not reading:
+                print(f"    {self.path}: (empty reading)", flush=True)
             else:
-                line = repr(reading)
-            print(f"    {self.path}: {line}", flush=True)
+                for category, value in reading.items():
+                    formatter = CATEGORY_FORMATTERS.get(category, format_generic)
+                    try:
+                        line = formatter(value) if isinstance(value, dict) else repr(value)
+                    except Exception as e:
+                        line = f"(couldn't format: {e}) {value!r}"
+                    print(f"    {category}: {line}", flush=True)
             reply = b"ack\n"
 
         self.send_response(200)

@@ -124,15 +124,19 @@ extern "C" {
 #define HTTP_SERVER_HTTPS_PORT   8443    /* tools/http_server.py's HTTPS listener -- rerun tools/gen_https_cert.sh
                                              if this IP/host ever changes, so https_ca_cert.h's embedded trust
                                              anchor still matches the cert the server presents */
-/* No single HTTP_RESOURCE anymore -- each sensor category posts to its own
- * resource path, see Sensors_Endpoints[] in Core/Src/sensors.c
- * (/temperature, /accelerometer, /gyroscope, etc). */
-/* Sleep between poll rounds, in milliseconds (not whole seconds -- a
- * round already does up to Sensors_EndpointCount sequential TLS
- * handshakes at ~450-650ms each, so this only controls the *extra* gap
- * after all of them finish, not the per-sensor latency; kept in ms so it
- * can be tuned finer than 1s increments). Was a flat 2s; cut to 300ms to
- * get fresh readings out sooner -- still nonzero so the thread always
+/* One combined JSON reading (Sensors_ReadAllJSON(), Core/Src/sensors.c) is
+ * POSTed here per poll round -- was briefly split into one small object
+ * per sensor category, each posted to its own resource, but that meant
+ * one full TLS handshake per category per round (~500-650ms each); one
+ * combined POST needs only a single handshake per round instead. */
+#define HTTP_RESOURCE            "/sensors"
+/* Sleep between poll rounds, in milliseconds (kept in ms, not whole
+ * seconds, so it can be tuned finer than 1s increments). This is the gap
+ * *after* the round's one handshake+POST finishes, not a bound on the
+ * round itself -- the real per-round floor is however long that single
+ * handshake takes (~500-650ms observed, RSA-2048 with no crypto offload,
+ * not something this constant controls). Was a flat 2s; cut to 300ms to
+ * get fresher readings out sooner -- still nonzero so the thread always
  * yields briefly between rounds rather than immediately hammering a new
  * connection. */
 #define HTTP_POLL_PERIOD_MS      300

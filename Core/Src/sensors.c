@@ -400,3 +400,39 @@ const Sensors_Endpoint_t Sensors_Endpoints[] =
 };
 
 const uint32_t Sensors_EndpointCount = sizeof(Sensors_Endpoints) / sizeof(Sensors_Endpoints[0]);
+
+uint32_t Sensors_ReadAllJSON(char *buf, uint32_t buf_size)
+{
+    uint32_t used = 0;
+    uint8_t any = 0;
+    uint32_t i;
+    /* Largest single category is comfortably under 100 bytes (axis
+     * triples and the two env objects are all well short of that; ranging
+     * would be the exception but s_ranging_ok is permanently 0, see
+     * Sensors_Init()) -- 256 is generous headroom, not a tight fit. */
+    char scratch[256];
+
+    if ((buf == NULL) || (buf_size == 0))
+    {
+        return 0;
+    }
+
+    used = append(buf, buf_size, used, "{");
+    for (i = 0; i < Sensors_EndpointCount; i++)
+    {
+        const Sensors_Endpoint_t *ep = &Sensors_Endpoints[i];
+        uint32_t n = ep->read(scratch, sizeof(scratch));
+
+        if (n == 0)
+        {
+            continue;
+        }
+        /* ep->resource is always "/<name>" -- reuse it as this category's
+         * key in the combined object, just skip the leading slash. */
+        used = append(buf, buf_size, used, "%s\"%s\":%s", any ? "," : "", ep->resource + 1, scratch);
+        any = 1;
+    }
+    used = append(buf, buf_size, used, "}");
+    terminate(buf, buf_size, used);
+    return used;
+}

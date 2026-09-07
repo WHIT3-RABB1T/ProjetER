@@ -621,28 +621,26 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
     return(NX_SUCCESS);
 }
 
-/* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_MS milliseconds, walks
- * Sensors_Endpoints[] (sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX,
- * IIS2MDC, VEML3235, VL53L5CX, all on I2C2) and, for every category that
- * actually has a reading this round, opens a fresh TLS connection to
- * HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT and POSTs that one category's
- * JSON object to its own resource (temperature to /temperature,
- * accelerometer data to /accelerometer, and so on) — so different kinds of
- * sensor data land on different endpoints on the server, not one combined
- * blob. Each POST prints the (decrypted) response body and tears its
- * client back down before moving to the next resource — one clean create/
- * handshake/POST/delete cycle per request, matching the lifecycle NetX
- * Duo's own HTTP client POST sample (netx_web_post_basic_test.c) uses:
- * post_secure_start (runs the TLS handshake via tls_setup_callback above,
- * then sends headers + Content-Length over the now-encrypted connection)
- * -> request_packet_allocate -> nx_packet_data_append (fills the body) ->
+/* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_MS milliseconds,
+ * opens a fresh TLS connection to HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT
+ * and POSTs one combined JSON reading of the whole onboard sensor suite
+ * (see sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX, IIS2MDC, VEML3235, all
+ * on I2C2) to HTTP_RESOURCE, prints the (decrypted) response body, and
+ * tears the client back down -- one clean create/handshake/POST/delete
+ * cycle per round, matching the lifecycle NetX Duo's own HTTP client POST
+ * sample (netx_web_post_basic_test.c) uses: post_secure_start (runs the
+ * TLS handshake via tls_setup_callback above, then sends headers +
+ * Content-Length over the now-encrypted connection) ->
+ * request_packet_allocate -> nx_packet_data_append (fills the body) ->
  * put_packet (encrypts and sends it).
  *
- * Doing a full TLS handshake per resource, sequentially, means one poll
- * round now takes roughly (number of categories with data) times as long
- * as a single POST used to -- HTTP_POLL_PERIOD_MS is the sleep *between*
- * rounds, not a hard deadline for one, so this only stretches the real
- * end-to-end cadence, it never overlaps two rounds. */
+ * This used to POST each sensor category to its own resource
+ * (/temperature, /accelerometer, etc, one handshake each -- still exactly
+ * what Sensors_Endpoints[] in sensors.c does under the hood), but a full
+ * TLS handshake on this hardware costs ~500-650ms (RSA-2048, no crypto
+ * offload) and doing one per category made a full sweep take 3.5-5s; one
+ * combined POST needs only a single handshake, so this trades per-
+ * resource routing for a much shorter, more attainable poll cadence. */
 static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 {
     UINT        ret;
@@ -653,14 +651,12 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     UCHAR       receive_buffer[256];
     ULONG       bytes;
     ULONG       round = 0;
-    uint32_t    i;
     /* static, not a plain local: this thread's stack is already sized
      * tight against the RSA call chain (see the 8x DEFAULT_MEMORY_SIZE
      * comment in MX_NetXDuo_Init below) -- putting 768 more bytes there
      * on top of send/receive buffers would eat back into that margin for
      * no reason, since this buffer only ever needs one writer at a time
-     * from this one thread anyway. Reused for every resource in the
-     * endpoint loop below, one category's reading at a time. */
+     * from this one thread anyway. */
     static CHAR body[768];
     UINT        body_len;
     ULONG       t0;
@@ -671,18 +667,18 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     server_ip_address.nxd_ip_version = NX_IP_VERSION_V4;
     server_ip_address.nxd_ip_address.v4 = HTTP_SERVER_ADDRESS;
 
-    printf("HTTPS POST client ready. Target https://%u.%u.%u.%u:%d, %lu sensor endpoint(s)\r\n",
+    printf("HTTPS POST client ready. Target https://%u.%u.%u.%u:%d%s\r\n",
            (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
            (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
            (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
            (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
-           HTTP_SERVER_HTTPS_PORT, (unsigned long)Sensors_EndpointCount);
+           HTTP_SERVER_HTTPS_PORT, HTTP_RESOURCE);
 
     /* Probe the sensor suite once, up front: it's independent of Wi-Fi/DHCP
      * (I2C2, not the network), each of the 6 sensors self-reports OK/FAILED
-     * over the same serial log, and every Sensors_Endpoints[].read below
-     * simply reports "nothing to send" (0) for whatever didn't come up,
-     * rather than blocking the HTTP loop on it. */
+     * over the same serial log, and Sensors_ReadAllJSON() below simply
+     * omits whatever didn't come up rather than blocking the HTTP loop
+     * on it. */
     Sensors_Init();
 
     /* Arm the watchdog only now -- Wi-Fi join, DHCP and sensor probing are
@@ -715,63 +711,49 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 
     while (1)
     {
-        printf("=== poll round #%lu: checking %lu resource(s) ===\r\n",
-               round, (unsigned long)Sensors_EndpointCount);
+        /* Mark forward progress for the watchdog *before* doing this
+         * round's work, not after -- see watchdog_timer_entry() above. If
+         * this round's blocking calls below wedge, this is the last
+         * timestamp that ever gets set, so staleness (and the eventual
+         * reset) is measured from the moment it actually got stuck, not
+         * from whenever the previous, successful round happened to
+         * finish. */
+        WatchdogLastProgressTick = tx_time_get();
 
-        for (i = 0; i < Sensors_EndpointCount; i++)
+        /* Read every sensor that's up into one combined JSON body --
+         * see sensors.h. Content-Length has to be known up front for
+         * post_secure_start() below, so this has to happen before the
+         * TLS handshake even starts, not while streaming the body out. */
+        body_len = (UINT)Sensors_ReadAllJSON(body, sizeof(body));
+
+        printf("--- poll round #%lu: connecting to %u.%u.%u.%u:%d ---\r\n",
+               round,
+               (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
+               (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
+               (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
+               (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
+               HTTP_SERVER_HTTPS_PORT);
+
+        /* window_size bumped 1536 -> 8192: found via `ss -i` on the server
+         * while a connection sat stuck -- mss:768, and the server had been
+         * retransmitting the same segment for 4.5 minutes (retrans:1/12,
+         * bytes_acked stuck at exactly 768 = one segment) because our
+         * 1536-byte window only ever allowed 2 segments in flight, and
+         * once the second one needed a retry, there was no window room
+         * left to make progress. ServerHello + our ~800-byte self-signed
+         * Certificate + ServerHelloDone need more than 1536 bytes of
+         * simultaneous in-flight room at 768 bytes/segment; this is the
+         * exact same class of bug as the packet-pool-too-small issue this
+         * file already documents for TLS (10 -> 32 packets) -- a value
+         * sized for plain HTTP, never revisited when TLS was layered on
+         * top. 8192 is comfortably within AppPool's ~48KB capacity. */
+        ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
+        if (ret != NX_SUCCESS)
         {
-            const Sensors_Endpoint_t *ep = &Sensors_Endpoints[i];
-
-            /* Mark forward progress for the watchdog *before* doing this
-             * endpoint's work, not after -- see watchdog_timer_entry()
-             * above. If this specific iteration's blocking calls below
-             * wedge, this is the last timestamp that ever gets set, so
-             * staleness (and the eventual reset) is measured from the
-             * moment it actually got stuck, not from whenever the
-             * previous, successful iteration happened to finish. */
-            WatchdogLastProgressTick = tx_time_get();
-
-            /* Read this one category. Content-Length has to be known up
-             * front for post_secure_start() below, so this has to happen
-             * before the TLS handshake even starts, not while streaming
-             * the body out. A 0 return means this category's sensor(s)
-             * aren't up (or errored on this particular read) -- skip the
-             * POST entirely instead of sending an empty/placeholder body. */
-            body_len = (UINT)ep->read(body, sizeof(body));
-            if (body_len == 0)
-            {
-                printf("--- %s: no data this round, skipping ---\r\n", ep->resource);
-                continue;
-            }
-
-            /* window_size bumped 1536 -> 8192: found via `ss -i` on the server
-             * while a connection sat stuck -- mss:768, and the server had been
-             * retransmitting the same segment for 4.5 minutes (retrans:1/12,
-             * bytes_acked stuck at exactly 768 = one segment) because our
-             * 1536-byte window only ever allowed 2 segments in flight, and
-             * once the second one needed a retry, there was no window room
-             * left to make progress. ServerHello + our ~800-byte self-signed
-             * Certificate + ServerHelloDone need more than 1536 bytes of
-             * simultaneous in-flight room at 768 bytes/segment; this is the
-             * exact same class of bug as the packet-pool-too-small issue this
-             * file already documents for TLS (10 -> 32 packets) -- a value
-             * sized for plain HTTP, never revisited when TLS was layered on
-             * top. 8192 is comfortably within AppPool's ~48KB capacity. */
-            ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
-            if (ret != NX_SUCCESS)
-            {
-                printf("HTTP client create failed: 0x%02X\r\n", ret);
-                continue;
-            }
-
-            printf("--- POST %s: connecting to %u.%u.%u.%u:%d ---\r\n",
-                   ep->resource,
-                   (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
-                   (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
-                   (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
-                   (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
-                   HTTP_SERVER_HTTPS_PORT);
-
+            printf("HTTP client create failed: 0x%02X\r\n", ret);
+        }
+        else
+        {
             /* post_secure_start runs the TLS handshake (via tls_setup_callback
              * above) and then, over the now-encrypted connection, sends the
              * request line + headers (including Content-Length: body_len
@@ -786,18 +768,17 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
              * configured wait_option to actually return an error (30s
              * requested -> ~60-70s observed before the call gave back
              * control) -- so the old 30s ceiling meant one bad connection
-             * could stall the whole endpoint loop for over a minute. 8s is
+             * could stall the whole thread for over a minute. 8s is
              * comfortably above every successful handshake actually
              * observed (~450-650ms), so this shouldn't cut off anything
-             * that was going to succeed anyway, just abandon dead
-             * connections faster and let the loop move on to the next
-             * resource sooner. This does NOT bound nx_crypto_rsa.c's own
+             * that was going to succeed anyway, just abandon a dead
+             * connection faster. This does NOT bound nx_crypto_rsa.c's own
              * modular exponentiation, though (no yield points, done
              * entirely in software -- can't be preempted or timed out by
              * anything short of the IWDG watchdog above), so a genuine
              * stuck-mid-RSA handshake still relies on that as the
-             * backstop, same as before. The elapsed-time print below shows
-             * the real cost of each individual handshake either way. */
+             * backstop. The elapsed-time print below shows the real cost
+             * of each handshake either way. */
             print_pool_status("before post_secure_start");
             t0 = tx_time_get();
             /* Arm the heartbeat: every 2s from here until the call returns,
@@ -809,7 +790,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
             tx_timer_activate(&DiagHeartbeatTimer);
             ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
-                                                        ep->resource, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
+                                                        HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
                                                         body_len, tls_setup_callback, 8 * NX_IP_PERIODIC_RATE);
             tx_timer_deactivate(&DiagHeartbeatTimer);
             elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
@@ -858,7 +839,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                             nx_packet_data_extract_offset(receive_packet, 0, receive_buffer,
                                                           sizeof(receive_buffer) - 1, &bytes);
                             receive_buffer[bytes] = 0;
-                            printf("POST %s <- %s -> %s\r\n", ep->resource, body,
+                            printf("POST %s <- %s -> %s\r\n", HTTP_RESOURCE, body,
                                    (char *)receive_buffer);
                             nx_packet_release(receive_packet);
                         }
