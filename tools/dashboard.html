@@ -149,6 +149,22 @@
     padding: 24px;
     z-index: 10;
   }
+  /* Without this, the [hidden] attribute does nothing here: browsers'
+   * built-in "[hidden] { display: none }" rule and this class's own
+   * "display: flex" above are equal specificity, and normal (non-
+   * !important) author styles always beat the user-agent stylesheet at
+   * a tie -- so .modal-overlay's own display:flex silently won every
+   * time, regardless of the hidden attribute. That left this full-
+   * viewport, position:fixed overlay permanently in the layout and
+   * intercepting every click on the page (cards included) even while
+   * "closed", which is what actually caused the stuck empty grey
+   * rectangle: opening never really opened it (a card click landed on
+   * this invisible-but-present overlay instead of the card underneath),
+   * and closing never really closed it either. A selector specific to
+   * *this class with the hidden attribute* outweighs the bare class
+   * rule above regardless of cascade origin, so this is the actual fix,
+   * not just a more forceful-looking one. */
+  .modal-overlay[hidden] { display: none; }
   .modal-panel {
     background: var(--panel);
     border: 1px solid var(--panel-border);
