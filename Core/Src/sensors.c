@@ -135,33 +135,35 @@ void Sensors_Init(void)
     s_light_ok = (uint8_t)(ret == BSP_ERROR_NONE);
     printf("Sensors: VEML3235 (light)         init %s (%ld)\r\n", s_light_ok ? "OK" : "FAILED", (long)ret);
 
-    /* --- Ranging: VL53L5CX (instance = built-in/center) ---
-     * By far the slowest and most fragile of the six: Init() alone
-     * uploads an ~84 KB firmware image to the sensor's own RAM over I2C
-     * (see vl53l5cx_api.c / vl53l5cx_buffers.h), so it goes last and every
-     * step is logged individually. 4x4 profile (16 zones, not the full
-     * 8x8/64) keeps each JSON reading a manageable size and this a
-     * manageable amount of I2C traffic per poll. */
-    ret = BSP_RANGING_SENSOR_Init(VL53L5A1_DEV_CENTER);
-    printf("Sensors: VL53L5CX ranging Init()       -> %ld\r\n", (long)ret);
-    if (ret == BSP_ERROR_NONE)
-    {
-        RANGING_SENSOR_ProfileConfig_t profile;
-        profile.RangingProfile = RS_PROFILE_4x4_CONTINUOUS;
-        profile.TimingBudget = 10;   /* ms */
-        profile.Frequency = 2;       /* Hz */
-        profile.EnableAmbient = 0;
-        profile.EnableSignal = 0;
-        ret = BSP_RANGING_SENSOR_ConfigProfile(VL53L5A1_DEV_CENTER, &profile);
-        printf("Sensors: VL53L5CX ConfigProfile()      -> %ld\r\n", (long)ret);
-    }
-    if (ret == BSP_ERROR_NONE)
-    {
-        ret = BSP_RANGING_SENSOR_Start(VL53L5A1_DEV_CENTER, RS_MODE_BLOCKING_CONTINUOUS);
-        printf("Sensors: VL53L5CX Start()              -> %ld\r\n", (long)ret);
-    }
-    s_ranging_ok = (uint8_t)(ret == BSP_ERROR_NONE);
-    printf("Sensors: VL53L5CX (ranging)       init %s\r\n", s_ranging_ok ? "OK" : "FAILED");
+    /* --- Ranging: VL53L5CX (instance = built-in/center) --- DISABLED.
+     *
+     * BSP_RANGING_SENSOR_Init() (b_u585i_iot02a_ranging_sensor.c) opens
+     * with an unconditional call to a private helper, vl53l5cx_i2c_recover(),
+     * documented there as working around "an I2C bug on the device": it
+     * reconfigures the shared I2C2 SCL/SDA pins from the I2C peripheral's
+     * alternate function into plain bit-banged GPIO_MODE_OUTPUT_OD to
+     * manually toggle SCL and force any wedged slave to release the bus --
+     * and then simply never switches those pins back to I2C mode
+     * afterward. Nothing else in the BSP ever re-runs that pin
+     * configuration either (BSP_I2C2_Init()'s own MSP init is guarded by a
+     * one-shot ref-count that's already past 0 by the time ranging runs
+     * last in the sequence below), so the very first call to this function
+     * permanently disconnects the I2C2 *peripheral* from its own physical
+     * pins -- explaining, exactly, what real hardware testing showed:
+     * HTS221/LPS22HH/ISM330DHCX/IIS2MDC/VEML3235 (all probed *before* this
+     * point) reported "init OK", then VL53L5CX's own probe failed right
+     * after (-5, since its I2C reads now go nowhere either), and every
+     * single Get*() call on the other five sensors failed identically
+     * (-5) on every poll round from then on -- not five unrelated sensor
+     * bugs, one shared bus getting silently amputated by this call.
+     *
+     * Until/unless that BSP bug is worked around (re-running the private
+     * MX_I2C2_Init() to restore AF mode on the pins, which isn't part of
+     * the public BSP surface), ranging simply isn't safe to initialize
+     * alongside the other five sensors on this bus -- so it's skipped
+     * entirely. s_ranging_ok stays 0 (its static default), and
+     * read_ranging() already reports "no data" for /ranging accordingly. */
+    printf("Sensors: VL53L5CX (ranging)       skipped (BSP_RANGING_SENSOR_Init leaves I2C2 unusable for every other sensor -- see comment above)\r\n");
 
     printf("Sensors: init done -- hts221=%d lps22hh=%d accel/gyro=%d mag=%d light=%d ranging=%d\r\n",
            s_hts221_ok, s_lps22hh_ok, s_accel_gyro_ok, s_mag_ok, s_light_ok, s_ranging_ok);
