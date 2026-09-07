@@ -174,31 +174,53 @@ void Sensors_Init(void)
  * length. */
 
 /* {"hts221_c":F,"lps22hh_c":F} -- both chips independently measure
- * temperature; report whichever succeeded, omit whichever didn't. */
+ * temperature; report whichever succeeded, omit whichever didn't.
+ *
+ * DIAGNOSTIC: every BSP_*_Get*() call below that returns anything other
+ * than BSP_ERROR_NONE gets its raw code printed. This is temporary --
+ * added because the first real-hardware run showed all 5 sensors that
+ * initialized OK (hts221/lps22hh/ism330dhcx/iis2mdc/veml3235) still
+ * reporting "no data" on every single read, with no way to tell from the
+ * old silent-omission behaviour whether that's BSP_ERROR_NO_INIT (a
+ * Sensors_Init() bookkeeping bug), BSP_ERROR_COMPONENT_FAILURE (the
+ * driver's own I2C read sequence failing), or something else -- see
+ * b_u585i_iot02a_errno.h for the numeric meanings. Safe to remove once
+ * the actual failure mode is known. */
 static uint32_t read_temperature(char *buf, uint32_t buf_size)
 {
     uint32_t used = 0;
     uint8_t any = 0;
     long whole, frac;
+    int32_t ret;
 
     if (s_hts221_ok)
     {
         float temp_c = 0.0f;
-        if (BSP_ENV_SENSOR_GetValue(0, ENV_TEMPERATURE, &temp_c) == BSP_ERROR_NONE)
+        ret = BSP_ENV_SENSOR_GetValue(0, ENV_TEMPERATURE, &temp_c);
+        if (ret == BSP_ERROR_NONE)
         {
             float_to_fixed2(temp_c, &whole, &frac);
             used = append(buf, buf_size, used, "%s\"hts221_c\":%ld.%02ld", any ? "," : "{", whole, frac);
             any = 1;
         }
+        else
+        {
+            printf("Sensors: HTS221 GetValue(TEMPERATURE) -> %ld\r\n", (long)ret);
+        }
     }
     if (s_lps22hh_ok)
     {
         float temp_c = 0.0f;
-        if (BSP_ENV_SENSOR_GetValue(1, ENV_TEMPERATURE, &temp_c) == BSP_ERROR_NONE)
+        ret = BSP_ENV_SENSOR_GetValue(1, ENV_TEMPERATURE, &temp_c);
+        if (ret == BSP_ERROR_NONE)
         {
             float_to_fixed2(temp_c, &whole, &frac);
             used = append(buf, buf_size, used, "%s\"lps22hh_c\":%ld.%02ld", any ? "," : "{", whole, frac);
             any = 1;
+        }
+        else
+        {
+            printf("Sensors: LPS22HH GetValue(TEMPERATURE) -> %ld\r\n", (long)ret);
         }
     }
     if (!any)
@@ -210,15 +232,22 @@ static uint32_t read_temperature(char *buf, uint32_t buf_size)
     return used;
 }
 
-/* {"hts221_rh":F} */
+/* {"hts221_rh":F} -- see the DIAGNOSTIC note on read_temperature() above. */
 static uint32_t read_humidity(char *buf, uint32_t buf_size)
 {
     uint32_t used = 0;
     float hum_rh = 0.0f;
     long whole, frac;
+    int32_t ret;
 
-    if (!s_hts221_ok || (BSP_ENV_SENSOR_GetValue(0, ENV_HUMIDITY, &hum_rh) != BSP_ERROR_NONE))
+    if (!s_hts221_ok)
     {
+        return 0;
+    }
+    ret = BSP_ENV_SENSOR_GetValue(0, ENV_HUMIDITY, &hum_rh);
+    if (ret != BSP_ERROR_NONE)
+    {
+        printf("Sensors: HTS221 GetValue(HUMIDITY) -> %ld\r\n", (long)ret);
         return 0;
     }
     float_to_fixed2(hum_rh, &whole, &frac);
@@ -227,15 +256,22 @@ static uint32_t read_humidity(char *buf, uint32_t buf_size)
     return used;
 }
 
-/* {"lps22hh_hpa":F} */
+/* {"lps22hh_hpa":F} -- see the DIAGNOSTIC note on read_temperature() above. */
 static uint32_t read_pressure(char *buf, uint32_t buf_size)
 {
     uint32_t used = 0;
     float press_hpa = 0.0f;
     long whole, frac;
+    int32_t ret;
 
-    if (!s_lps22hh_ok || (BSP_ENV_SENSOR_GetValue(1, ENV_PRESSURE, &press_hpa) != BSP_ERROR_NONE))
+    if (!s_lps22hh_ok)
     {
+        return 0;
+    }
+    ret = BSP_ENV_SENSOR_GetValue(1, ENV_PRESSURE, &press_hpa);
+    if (ret != BSP_ERROR_NONE)
+    {
+        printf("Sensors: LPS22HH GetValue(PRESSURE) -> %ld\r\n", (long)ret);
         return 0;
     }
     float_to_fixed2(press_hpa, &whole, &frac);
@@ -246,15 +282,23 @@ static uint32_t read_pressure(char *buf, uint32_t buf_size)
 
 /* Shared by the three ISM330DHCX/IIS2MDC axis readers below --
  * {"x":N,"y":N,"z":N}, plain int32_t (mg / mdps / mgauss), no float
- * involved at all. */
+ * involved at all. See the DIAGNOSTIC note on read_temperature() above --
+ * `label` identifies which of the three this failure came from. */
 static uint32_t read_axes(char *buf, uint32_t buf_size, uint8_t sensor_ok,
-                           uint32_t instance, uint32_t function)
+                           uint32_t instance, uint32_t function, const char *label)
 {
     uint32_t used = 0;
+    int32_t ret;
     BSP_MOTION_SENSOR_Axes_t axes;
 
-    if (!sensor_ok || (BSP_MOTION_SENSOR_GetAxes(instance, function, &axes) != BSP_ERROR_NONE))
+    if (!sensor_ok)
     {
+        return 0;
+    }
+    ret = BSP_MOTION_SENSOR_GetAxes(instance, function, &axes);
+    if (ret != BSP_ERROR_NONE)
+    {
+        printf("Sensors: %s GetAxes() -> %ld\r\n", label, (long)ret);
         return 0;
     }
     used = append(buf, buf_size, used, "{\"x\":%ld,\"y\":%ld,\"z\":%ld}",
@@ -265,30 +309,37 @@ static uint32_t read_axes(char *buf, uint32_t buf_size, uint8_t sensor_ok,
 
 static uint32_t read_accelerometer(char *buf, uint32_t buf_size)
 {
-    return read_axes(buf, buf_size, s_accel_gyro_ok, 0, MOTION_ACCELERO);
+    return read_axes(buf, buf_size, s_accel_gyro_ok, 0, MOTION_ACCELERO, "ISM330DHCX accel");
 }
 
 static uint32_t read_gyroscope(char *buf, uint32_t buf_size)
 {
-    return read_axes(buf, buf_size, s_accel_gyro_ok, 0, MOTION_GYRO);
+    return read_axes(buf, buf_size, s_accel_gyro_ok, 0, MOTION_GYRO, "ISM330DHCX gyro");
 }
 
 static uint32_t read_magnetometer(char *buf, uint32_t buf_size)
 {
-    return read_axes(buf, buf_size, s_mag_ok, 1, MOTION_MAGNETO);
+    return read_axes(buf, buf_size, s_mag_ok, 1, MOTION_MAGNETO, "IIS2MDC mag");
 }
 
 /* {"als_raw":N,"white_raw":N} -- raw register counts, not calibrated lux
  * (BSP_LIGHT_SENSOR_GetValues() returns the two channels straight from the
  * sensor with no lux conversion applied); still real per-poll ambient-light
- * data either way. */
+ * data either way. See the DIAGNOSTIC note on read_temperature() above. */
 static uint32_t read_light(char *buf, uint32_t buf_size)
 {
     uint32_t used = 0;
     uint32_t light_values[2] = { 0, 0 };
+    int32_t ret;
 
-    if (!s_light_ok || (BSP_LIGHT_SENSOR_GetValues(0, light_values) != BSP_ERROR_NONE))
+    if (!s_light_ok)
     {
+        return 0;
+    }
+    ret = BSP_LIGHT_SENSOR_GetValues(0, light_values);
+    if (ret != BSP_ERROR_NONE)
+    {
+        printf("Sensors: VEML3235 GetValues() -> %ld\r\n", (long)ret);
         return 0;
     }
     used = append(buf, buf_size, used, "{\"als_raw\":%lu,\"white_raw\":%lu}",
