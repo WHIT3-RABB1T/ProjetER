@@ -26,12 +26,17 @@ GET / serves dashboard.html, a live browser dashboard with two tabs
     category's history (GET /api/history?category=<name>, polled while
     the chart is open) -- see HISTORY_WINDOW_SECONDS below for how much
     is kept.
-  - Cryptography: a reference page on the actual TLS setup (cipher
-    suites, why the board and a browser get different ones, the
-    handshake, the certificate's trust model, known limitations), plus
-    the board's real last-negotiated TLS version/cipher/bits (also from
-    /api/latest's "board_tls" field, itself sourced from _tls_by_ip
-    below) so the numbers shown are live, not just descriptive.
+  - Cryptography: the cipher suites offered (GET /api/latest's
+    "board_tls" field, from _tls_by_ip below, shows the board's real
+    last-negotiated version/cipher/bits), the server's actual certificate
+    and key pair (GET /api/cert-info -- parses tools/certs/server.crt/
+    .key fresh on every request via the `cryptography` package; the
+    private key's raw bytes are deliberately never included, type/size
+    only), and a real captured (ciphertext, plaintext) pair from an
+    actual board connection (GET /api/crypto-sample, reading
+    tools/crypto_sample.json -- see tools/capture_crypto_sample.py for
+    how and why that has to be captured as a separate one-off script
+    rather than something this server does continuously).
 Any other GET path still gets the old plaintext greeting, e.g. for a
 quick curl-reachability check.
 
@@ -70,6 +75,17 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
+# Only used by _serve_cert_info_json, to parse tools/certs/server.crt/.key
+# for the Cryptography tab -- guarded because it's the one dependency
+# this file needs beyond the standard library, and the rest of the
+# server has no reason to fail to start without it.
+try:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    _HAVE_CRYPTOGRAPHY = True
+except ImportError:
+    _HAVE_CRYPTOGRAPHY = False
+
 # Bounds every accepted connection's TLS handshake and body read (see
 # HTTPSServer below) -- generous next to any real handshake+POST cycle
 # (observed: well under 2s), but short enough that a connection that's
@@ -95,6 +111,13 @@ _latest_reading = None    # dict, or None before the first POST ever arrives
 _latest_at_ms = None      # int, time.time()*1000 when _latest_reading was set
 _latest_source = None     # str, the board's IP at that time
 _history = collections.deque(maxlen=HISTORY_MAX_ENTRIES)  # [(t_ms, reading_dict), ...], oldest first
+
+# Set once in main() from --certfile/--keyfile; read by _serve_cert_info_json
+# (parses the cert/key fresh on every request, same "always current, no
+# caching" rule as dashboard.html) and _serve_crypto_sample_json (locates
+# the sibling crypto_sample.json).
+_cert_path = None
+_key_path = None
 
 # Actual negotiated TLS parameters (version/cipher/bits), per source IP,
 # for the dashboard's Cryptography tab to show real live numbers instead
@@ -177,6 +200,10 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_latest_json()
         elif path == "/api/history":
             self._serve_history_json()
+        elif path == "/api/cert-info":
+            self._serve_cert_info_json()
+        elif path == "/api/crypto-sample":
+            self._serve_crypto_sample_json()
         else:
             body = f"Hello from {socket.gethostname()}, you asked for {self.path}\n".encode()
             self.send_response(200)
@@ -255,6 +282,92 @@ class Handler(BaseHTTPRequestHandler):
             entries = [{"t": t, "reading": r} for t, r in snapshot]
         payload = json.dumps({"entries": entries}).encode()
         self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _serve_cert_info_json(self):
+        # Backs the Cryptography tab's certificate/key panel. Parses
+        # tools/certs/server.crt and .key fresh on every request (same
+        # "always current" rule as dashboard.html -- if someone reruns
+        # gen_https_cert.sh, the next page load just shows the new one)
+        # rather than caching anything at startup.
+        info = {}
+        if not _HAVE_CRYPTOGRAPHY:
+            info["error"] = "the 'cryptography' package isn't installed on this machine (pip install cryptography)"
+        else:
+            try:
+                with open(_cert_path, "rb") as f:
+                    cert_pem = f.read()
+                cert = x509.load_pem_x509_certificate(cert_pem)
+                pub = cert.public_key()
+                numbers = pub.public_numbers()
+                info["subject"] = cert.subject.rfc4514_string()
+                info["issuer"] = cert.issuer.rfc4514_string()
+                info["serial_number"] = format(cert.serial_number, "X")
+                # .not_valid_before/.not_valid_after (naive, UTC) rather
+                # than the _utc-suffixed properties: those were only added
+                # in `cryptography` 42, and this machine has 41.x.
+                info["not_valid_before"] = cert.not_valid_before.isoformat() + "Z"
+                info["not_valid_after"] = cert.not_valid_after.isoformat() + "Z"
+                info["sha256_fingerprint"] = ":".join(f"{b:02X}" for b in cert.fingerprint(hashes.SHA256()))
+                info["public_key_algorithm"] = "RSA"
+                info["public_key_bits"] = pub.key_size
+                info["public_key_exponent"] = numbers.e
+                modulus_hex = format(numbers.n, "X")
+                info["public_key_modulus_hex"] = modulus_hex
+                info["pem"] = cert_pem.decode()
+            except (OSError, ValueError, AttributeError) as e:
+                info["error"] = f"couldn't read/parse {_cert_path}: {e}"
+
+            # Private key: type/size only, on purpose -- see dashboard.html's
+            # Cryptography tab for why the raw key material itself is never
+            # served, even locally. This isn't a hypothetical caution: the
+            # board's own connection already has no forward secrecy (static
+            # RSA key exchange), so this one file is the single point of
+            # failure for every past and future session with the board --
+            # putting its bytes on an HTTP response, on a dev laptop, on a
+            # shared hotspot, for a dashboard visualization, isn't a
+            # trade worth making.
+            try:
+                with open(_key_path, "rb") as f:
+                    key_pem = f.read()
+                key = serialization.load_pem_private_key(key_pem, password=None)
+                info["private_key_algorithm"] = "RSA"
+                info["private_key_bits"] = key.key_size
+                info["private_key_location"] = os.path.relpath(_key_path, os.path.dirname(_cert_path or "."))
+            except (OSError, ValueError) as e:
+                info["private_key_error"] = f"couldn't read/parse {_key_path}: {e}"
+
+        payload = json.dumps(info).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _serve_crypto_sample_json(self):
+        # Backs the Cryptography tab's ciphertext/plaintext panel -- a
+        # real (not simulated) TLS record captured from an actual board
+        # connection by tools/capture_crypto_sample.py (see that file for
+        # why this has to be a separate one-off capture rather than
+        # something this server does continuously). Just relays whatever
+        # is currently in tools/crypto_sample.json; a 404-shaped response
+        # if that capture has never been run yet.
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crypto_sample.json")
+        try:
+            with open(path, "rb") as f:
+                payload = f.read()
+            status = 200
+        except OSError:
+            payload = json.dumps({
+                "error": "no capture yet -- run tools/capture_crypto_sample.py (see its docstring)",
+            }).encode()
+            status = 200  # still 200: this is a normal, expected state before the first capture
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
@@ -420,6 +533,9 @@ def main() -> None:
         print(f"Missing {args.certfile} / {args.keyfile} -- run tools/gen_https_cert.sh first.",
               file=sys.stderr)
         sys.exit(1)
+
+    global _cert_path, _key_path
+    _cert_path, _key_path = args.certfile, args.keyfile
 
     # Pinned to exactly what the board's NetX Secure TLS stack can
     # negotiate -- see the module docstring above.
