@@ -341,7 +341,20 @@ def main() -> None:
     ctx.load_cert_chain(certfile=args.certfile, keyfile=args.keyfile)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.maximum_version = ssl.TLSVersion.TLSv1_2
-    ctx.set_ciphers("AES128-SHA256:AES256-SHA256")
+    # AES128-SHA256/AES256-SHA256 (static-RSA key exchange, no forward
+    # secrecy) are the only two ciphers the board's NetX Secure stack can
+    # do at all -- but modern browsers have deliberately stopped offering
+    # non-forward-secret suites like these for years, so a real browser
+    # hitting this same port for the dashboard (see do_GET's "/" and
+    # "/api/latest" routes) gets a hard TLS-layer refusal
+    # (SSL_ERROR_NO_CYPHER_OVERLAP in Firefox) with no cert-warning
+    # click-through to bypass, since there's no shared cipher at all, not
+    # just an untrusted cert. Adding two ECDHE suites alongside fixes both
+    # sides on one port/one cert: the board still only ever offers (and
+    # gets) the old RSA suites, since ECDHE isn't in its list, while a
+    # browser negotiates one of the ECDHE ones instead -- the same 2048-bit
+    # RSA cert signs both key exchange types, so no new cert is needed.
+    ctx.set_ciphers("AES128-SHA256:AES256-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384")
 
     server = HTTPSServer((args.host, args.port), Handler, ctx)
     local_ip = guess_local_ip()
