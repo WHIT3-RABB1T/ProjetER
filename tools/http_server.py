@@ -21,8 +21,11 @@ GET / serves dashboard.html, a live browser dashboard (one card per
 sensor category, polling GET /api/latest every 500ms) showing whatever
 the board's most recent POST contained -- open https://<this machine's
 IP>:<port>/ in a browser (self-signed cert, so it'll warn once; proceed
-past it). Any other GET path still gets the old plaintext greeting, e.g.
-for a quick curl-reachability check.
+past it). Clicking a card opens a live-updating chart of that category's
+history (GET /api/history?category=<name>, polled while the chart is
+open) -- see HISTORY_WINDOW_SECONDS below for how much is kept. Any other
+GET path still gets the old plaintext greeting, e.g. for a quick
+curl-reachability check.
 
 The TLS side is deliberately pinned narrow, to match exactly what the
 board's NetX Secure TLS stack can do: its ciphersuite table
@@ -47,6 +50,7 @@ Stop with Ctrl+C.
 """
 
 import argparse
+import collections
 import json
 import os
 import socket
@@ -56,6 +60,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse, parse_qs
 
 # Bounds every accepted connection's TLS handshake and body read (see
 # HTTPSServer below) -- generous next to any real handshake+POST cycle
@@ -63,15 +68,25 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 # genuinely never going to finish gets dropped in seconds, not never.
 CONNECTION_TIMEOUT_SECONDS = 10
 
-# The most recent successfully-parsed reading, for the browser dashboard
-# (GET / -- dashboard.html -- polls GET /api/latest) to show. Written by
-# do_POST, read by do_GET; HTTPSServer is threaded (one thread per
-# connection), so every access goes through _latest_lock rather than
+# How much reading history the chart view (GET /api/history) can show --
+# a diagnostic tool's rolling window, not a long-term data log. At the
+# board's observed ~1 reading/second cadence this is ~10 minutes;
+# HISTORY_MAX_ENTRIES is a hard backstop on top (count, not time) in case
+# the board's poll period is ever tightened well below 1s.
+HISTORY_WINDOW_SECONDS = 600
+HISTORY_MAX_ENTRIES = 2000
+
+# The most recent successfully-parsed reading, and a rolling window of
+# past ones, for the browser dashboard (GET / -- dashboard.html) to show:
+# /api/latest for the live tiles, /api/history for a clicked card's chart.
+# Written by do_POST, read by do_GET; HTTPSServer is threaded (one thread
+# per connection), so every access goes through _state_lock rather than
 # assuming only one request is ever in flight at a time.
-_latest_lock = threading.Lock()
+_state_lock = threading.Lock()
 _latest_reading = None    # dict, or None before the first POST ever arrives
 _latest_at_ms = None      # int, time.time()*1000 when _latest_reading was set
 _latest_source = None     # str, the board's IP at that time
+_history = collections.deque(maxlen=HISTORY_MAX_ENTRIES)  # [(t_ms, reading_dict), ...], oldest first
 
 
 def guess_local_ip() -> str:
@@ -134,10 +149,13 @@ class Handler(BaseHTTPRequestHandler):
     # that default (it includes client address and timestamp) and just
     # tack on which resource was requested.
     def do_GET(self):
-        if self.path == "/":
+        path = urlparse(self.path).path
+        if path == "/":
             self._serve_dashboard()
-        elif self.path == "/api/latest":
+        elif path == "/api/latest":
             self._serve_latest_json()
+        elif path == "/api/history":
+            self._serve_history_json()
         else:
             body = f"Hello from {socket.gethostname()}, you asked for {self.path}\n".encode()
             self.send_response(200)
@@ -174,13 +192,38 @@ class Handler(BaseHTTPRequestHandler):
         # under the lock rather than holding it while we serialize/write,
         # so a POST arriving mid-response never blocks on us (or us on it)
         # for longer than a dict copy.
-        with _latest_lock:
+        with _state_lock:
             reading, updated_at_ms, source = _latest_reading, _latest_at_ms, _latest_source
         payload = json.dumps({
             "reading": reading,
             "updated_at_ms": updated_at_ms,
             "source": source,
         }).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _serve_history_json(self):
+        # Backs a clicked card's chart (dashboard.html polls this every
+        # ~1s while a chart is open). ?category=<name> narrows each
+        # history entry down to just that category's own sub-object
+        # (e.g. {"x":...,"y":...,"z":...} for accelerometer) -- entries
+        # from a round where that category had no data are skipped
+        # entirely rather than sent as null, same "only real data" rule
+        # everything else here follows. Without ?category, the full
+        # combined reading is returned per entry instead (mainly useful
+        # for poking at this endpoint directly with curl).
+        category = (parse_qs(urlparse(self.path).query).get("category") or [None])[0]
+        with _state_lock:
+            snapshot = list(_history)
+        if category:
+            entries = [{"t": t, "v": r[category]} for t, r in snapshot if category in r]
+        else:
+            entries = [{"t": t, "reading": r} for t, r in snapshot]
+        payload = json.dumps({"entries": entries}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -231,13 +274,19 @@ class Handler(BaseHTTPRequestHandler):
 
             if isinstance(reading, dict) and reading:
                 # Feed the browser dashboard (GET / -> dashboard.html,
-                # polling GET /api/latest) -- only for an actual sensor
-                # reading, not an empty or non-dict body.
+                # polling GET /api/latest for the live tiles and
+                # GET /api/history for a clicked card's chart) -- only for
+                # an actual sensor reading, not an empty or non-dict body.
                 global _latest_reading, _latest_at_ms, _latest_source
-                with _latest_lock:
+                now_ms = int(time.time() * 1000)
+                with _state_lock:
                     _latest_reading = reading
-                    _latest_at_ms = int(time.time() * 1000)
+                    _latest_at_ms = now_ms
                     _latest_source = self.client_address[0]
+                    _history.append((now_ms, reading))
+                    cutoff = now_ms - HISTORY_WINDOW_SECONDS * 1000
+                    while _history and _history[0][0] < cutoff:
+                        _history.popleft()
 
             reply = b"ack\n"
 
