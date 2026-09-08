@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "app_azure_rtos.h"
 #include "sensors.h"
+#include <string.h>   /* memcmp -- Discover_ServerIP() below, comparing a received UDP reply against DISCOVERY_REPLY */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +49,8 @@ static const CHAR *tls_client_state_name(UINT state);
 static VOID diag_heartbeat_entry(ULONG id);
 static VOID diag_stack_error_notify(TX_THREAD *thread_ptr);
 static VOID watchdog_timer_entry(ULONG id);
+static VOID FormatIPAddress(ULONG address, CHAR *out);
+static UINT Discover_ServerIP(VOID);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -168,6 +171,15 @@ static NX_SECURE_X509_CERT remote_certificate;
 static NX_SECURE_X509_CERT remote_issuer;
 static UCHAR remote_cert_buffer[2000];
 static UCHAR remote_issuer_buffer[2000];
+
+/* Where the periodic POST actually goes -- set from HTTP_SERVER_ADDRESS/
+ * HTTP_SERVER_HOST at first, then overwritten by Discover_ServerIP() as
+ * soon as it hears back from a real server (see app_netxduo.h's
+ * DISCOVERY_* comment block for why this replaces dialing the compile-
+ * time constants directly). ServerHost needs 16 bytes for the longest
+ * possible "255.255.255.255\0". */
+static ULONG ServerAddress = HTTP_SERVER_ADDRESS;
+static CHAR  ServerHost[16] = HTTP_SERVER_HOST;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -644,9 +656,151 @@ static UINT tls_setup_callback(NX_WEB_HTTP_CLIENT *client_ptr, NX_SECURE_TLS_SES
     return(NX_SUCCESS);
 }
 
+/* Renders a big-endian ULONG IPv4 address as "a.b.c.d\0" into out, which
+ * must be at least 16 bytes -- the same byte layout PRINT_IP_ADDRESS
+ * above already assumes, just captured into ServerHost instead of
+ * printed. */
+static VOID FormatIPAddress(ULONG address, CHAR *out)
+{
+    sprintf(out, "%u.%u.%u.%u",
+           (unsigned)((address >> 24) & 0xFF),
+           (unsigned)((address >> 16) & 0xFF),
+           (unsigned)((address >> 8) & 0xFF),
+           (unsigned)(address & 0xFF));
+}
+
+/* Broadcast-discover the Python server's current IP -- see the DISCOVERY_*
+ * comment block in app_netxduo.h for the whole story of why this exists
+ * (mobile-hotspot subnets changing out from under a hardcoded address).
+ *
+ * Opens its own short-lived UDP socket bound to DISCOVERY_PORT, sends
+ * DISCOVERY_REQUEST to the local broadcast address, and waits up to
+ * DISCOVERY_RETRY_INTERVAL_SEC for a DISCOVERY_REPLY back -- repeating up
+ * to DISCOVERY_MAX_ATTEMPTS times (~30s total) before giving up. On a
+ * matching reply, ServerAddress/ServerHost are updated from the *packet's
+ * own source address* (nx_udp_source_extract), never from anything in its
+ * payload -- so this is correct regardless of what the server process
+ * itself thinks its address is. Returns NX_SUCCESS if a server answered,
+ * or NX_NOT_SUCCESSFUL if every attempt was exhausted with no reply, in
+ * which case ServerAddress/ServerHost are left exactly as they were
+ * (whatever the caller initialized them to, i.e. the HTTP_SERVER_ADDRESS/
+ * HTTP_SERVER_HOST fallback on first boot, or the last good discovered
+ * address on a re-discovery triggered mid-session). */
+static UINT Discover_ServerIP(VOID)
+{
+    UINT          ret;
+    NX_UDP_SOCKET discovery_socket;
+    NX_PACKET    *send_packet;
+    NX_PACKET    *receive_packet;
+    UINT          attempt;
+    ULONG         reply_address;
+    UINT          reply_port;
+    UCHAR         reply_buffer[64];
+    ULONG         bytes;
+    UINT          found = NX_FALSE;
+
+    ret = nx_udp_socket_create(&IpInstance, &discovery_socket, "Discovery Socket",
+                               NX_IP_NORMAL, NX_FRAGMENT_OKAY, 0x80, 4);
+    if (ret != NX_SUCCESS)
+    {
+        printf("Discovery: socket create failed: 0x%02X -- using fallback address\r\n", ret);
+        return ret;
+    }
+
+    /* Bound to DISCOVERY_PORT, not NX_ANY_PORT: the server's reply is a
+     * unicast send back to whatever source port our broadcast used, so
+     * this has to be a fixed, known port for it to reach -- reusing the
+     * same number the responder listens on for requests is fine, since
+     * UDP ports are independent per direction. */
+    ret = nx_udp_socket_bind(&discovery_socket, DISCOVERY_PORT, NX_NO_WAIT);
+    if (ret != NX_SUCCESS)
+    {
+        printf("Discovery: socket bind failed: 0x%02X -- using fallback address\r\n", ret);
+        nx_udp_socket_delete(&discovery_socket);
+        return ret;
+    }
+
+    printf("Discovery: broadcasting '%s' on port %d (up to %d attempts, %ds apart)...\r\n",
+           DISCOVERY_REQUEST, DISCOVERY_PORT, DISCOVERY_MAX_ATTEMPTS, DISCOVERY_RETRY_INTERVAL_SEC);
+
+    for (attempt = 0; attempt < DISCOVERY_MAX_ATTEMPTS && found == NX_FALSE; attempt++)
+    {
+        ret = nx_packet_allocate(&AppPool, &send_packet, NX_IPv4_UDP_PACKET, NX_NO_WAIT);
+        if (ret != NX_SUCCESS)
+        {
+            printf("Discovery: packet allocate failed: 0x%02X\r\n", ret);
+            break;
+        }
+
+        ret = nx_packet_data_append(send_packet, DISCOVERY_REQUEST, DISCOVERY_REQUEST_LEN,
+                                    &AppPool, NX_NO_WAIT);
+        if (ret != NX_SUCCESS)
+        {
+            printf("Discovery: packet fill failed: 0x%02X\r\n", ret);
+            nx_packet_release(send_packet);
+            break;
+        }
+
+        ret = nx_udp_socket_send(&discovery_socket, send_packet, DISCOVERY_BROADCAST_ADDR, DISCOVERY_PORT);
+        if (ret != NX_SUCCESS)
+        {
+            /* nx_udp_socket_send only releases the packet on success --
+             * same contract this file already relies on for
+             * nx_web_http_client_put_packet's send_packet further down. */
+            printf("Discovery: send failed: 0x%02X (attempt %u/%d)\r\n",
+                   ret, attempt + 1, DISCOVERY_MAX_ATTEMPTS);
+            nx_packet_release(send_packet);
+        }
+
+        ret = nx_udp_socket_receive(&discovery_socket, &receive_packet,
+                                    DISCOVERY_RETRY_INTERVAL_SEC * NX_IP_PERIODIC_RATE);
+        if (ret == NX_SUCCESS)
+        {
+            bytes = 0;
+            nx_packet_data_extract_offset(receive_packet, 0, reply_buffer,
+                                          sizeof(reply_buffer) - 1, &bytes);
+            reply_buffer[bytes] = 0;
+
+            if (bytes == DISCOVERY_REPLY_LEN && memcmp(reply_buffer, DISCOVERY_REPLY, DISCOVERY_REPLY_LEN) == 0)
+            {
+                nx_udp_source_extract(receive_packet, &reply_address, &reply_port);
+                ServerAddress = reply_address;
+                FormatIPAddress(reply_address, ServerHost);
+                printf("Discovery: server found at %s (attempt %u/%d)\r\n",
+                       ServerHost, attempt + 1, DISCOVERY_MAX_ATTEMPTS);
+                found = NX_TRUE;
+            }
+            else
+            {
+                /* Some other broadcast traffic on the same port/subnet --
+                 * ignore it and keep waiting out this attempt's window. */
+                printf("Discovery: got a %lu-byte reply that wasn't ours -- ignoring\r\n", bytes);
+            }
+            nx_packet_release(receive_packet);
+        }
+        /* else: no reply within this attempt's window -- NX_NO_PACKET
+         * (0x01) is the expected, normal case here (nobody's answered
+         * yet), not worth logging every ~2s; just loop around and
+         * broadcast again. */
+    }
+
+    nx_udp_socket_unbind(&discovery_socket);
+    nx_udp_socket_delete(&discovery_socket);
+
+    if (found == NX_FALSE)
+    {
+        printf("Discovery: no server found after %d attempts -- falling back to %s\r\n",
+               DISCOVERY_MAX_ATTEMPTS, ServerHost);
+        return NX_NOT_SUCCESSFUL;
+    }
+    return NX_SUCCESS;
+}
+
 /* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_MS milliseconds,
- * opens a fresh TLS connection to HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT
- * and POSTs one combined JSON reading of the whole onboard sensor suite
+ * opens a fresh TLS connection to ServerHost:HTTP_SERVER_HTTPS_PORT (found
+ * via Discover_ServerIP() at thread start, or re-found mid-session --
+ * see that function and the DISCOVERY_* block in app_netxduo.h) and POSTs
+ * one combined JSON reading of the whole onboard sensor suite
  * (see sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX, IIS2MDC, VEML3235, all
  * on I2C2) to HTTP_RESOURCE, prints the (decrypted) response body, and
  * tears the client back down -- one clean create/handshake/POST/delete
@@ -684,18 +838,9 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     UINT        body_len;
     ULONG       t0;
     ULONG       elapsed_ms;
+    UINT        consecutive_connect_failures = 0;
 
     TX_PARAMETER_NOT_USED(thread_input);
-
-    server_ip_address.nxd_ip_version = NX_IP_VERSION_V4;
-    server_ip_address.nxd_ip_address.v4 = HTTP_SERVER_ADDRESS;
-
-    printf("HTTPS POST client ready. Target https://%u.%u.%u.%u:%d%s\r\n",
-           (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
-           (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
-           (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
-           (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
-           HTTP_SERVER_HTTPS_PORT, HTTP_RESOURCE);
 
     /* Probe the sensor suite once, up front: it's independent of Wi-Fi/DHCP
      * (I2C2, not the network), each of the 6 sensors self-reports OK/FAILED
@@ -704,11 +849,26 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
      * on it. */
     Sensors_Init();
 
-    /* Arm the watchdog only now -- Wi-Fi join, DHCP and sensor probing are
-     * all done, so from here on a stall of WATCHDOG_STALE_TICKS really
-     * does mean something's wedged, not just a slow-but-normal boot step
-     * still in progress. See the watchdog comment near
-     * WatchdogLastProgressTick's declaration above for the full story. */
+    /* Find the server before ever dialing it -- see Discover_ServerIP()
+     * and the DISCOVERY_* block in app_netxduo.h. ServerAddress/ServerHost
+     * already hold the HTTP_SERVER_ADDRESS/HTTP_SERVER_HOST fallback from
+     * their static initializers above, so a failed discovery here (no
+     * reply inside ~30s) just means the loop below starts by dialing that
+     * fallback instead, exactly as if this call had never been added. */
+    Discover_ServerIP();
+
+    server_ip_address.nxd_ip_version = NX_IP_VERSION_V4;
+    server_ip_address.nxd_ip_address.v4 = ServerAddress;
+
+    printf("HTTPS POST client ready. Target https://%s:%d%s\r\n",
+           ServerHost, HTTP_SERVER_HTTPS_PORT, HTTP_RESOURCE);
+
+    /* Arm the watchdog only now -- Wi-Fi join, DHCP, sensor probing and
+     * server discovery are all done, so from here on a stall of
+     * WATCHDOG_STALE_TICKS really does mean something's wedged, not just a
+     * slow-but-normal boot step still in progress. See the watchdog
+     * comment near WatchdogLastProgressTick's declaration above for the
+     * full story. */
     WatchdogLastProgressTick = tx_time_get();
 #if defined(DBGMCU_APB1FZR1_DBG_IWDG_STOP)
     /* Halt the IWDG countdown while a debugger has the core stopped at a
@@ -749,13 +909,8 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
          * TLS handshake even starts, not while streaming the body out. */
         body_len = (UINT)Sensors_ReadAllJSON(body, sizeof(body));
 
-        printf("--- poll round #%lu: connecting to %u.%u.%u.%u:%d ---\r\n",
-               round,
-               (unsigned)((HTTP_SERVER_ADDRESS >> 24) & 0xFF),
-               (unsigned)((HTTP_SERVER_ADDRESS >> 16) & 0xFF),
-               (unsigned)((HTTP_SERVER_ADDRESS >> 8) & 0xFF),
-               (unsigned)(HTTP_SERVER_ADDRESS & 0xFF),
-               HTTP_SERVER_HTTPS_PORT);
+        printf("--- poll round #%lu: connecting to %s:%d ---\r\n",
+               round, ServerHost, HTTP_SERVER_HTTPS_PORT);
 
         /* window_size bumped 1536 -> 8192: found via `ss -i` on the server
          * while a connection sat stuck -- mss:768, and the server had been
@@ -813,7 +968,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
             tx_timer_activate(&DiagHeartbeatTimer);
             ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
-                                                        HTTP_RESOURCE, HTTP_SERVER_HOST, NX_NULL, NX_NULL,
+                                                        HTTP_RESOURCE, ServerHost, NX_NULL, NX_NULL,
                                                         body_len, tls_setup_callback, 8 * NX_IP_PERIODIC_RATE);
             tx_timer_deactivate(&DiagHeartbeatTimer);
             elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
@@ -821,9 +976,25 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             if (ret != NX_SUCCESS)
             {
                 printf("POST (TLS) start failed: 0x%02X after %lu ms\r\n", ret, elapsed_ms);
+                consecutive_connect_failures++;
+                if (consecutive_connect_failures >= DISCOVERY_RETRIGGER_FAILURES)
+                {
+                    /* Several rounds in a row couldn't even get a connect
+                     * going -- most likely the server moved to a new IP
+                     * mid-session (same hotspot-restart scenario as at
+                     * boot, just now instead of then). Re-broadcast and
+                     * pick up wherever it is now; server_ip_address is
+                     * rebuilt right after in case ServerAddress changed. */
+                    printf("Discovery: %u consecutive connect failures -- re-discovering server...\r\n",
+                           consecutive_connect_failures);
+                    Discover_ServerIP();
+                    server_ip_address.nxd_ip_address.v4 = ServerAddress;
+                    consecutive_connect_failures = 0;
+                }
             }
             else
             {
+                consecutive_connect_failures = 0;
                 printf("TLS handshake + HTTP headers sent ok after %lu ms, sending body...\r\n", elapsed_ms);
                 ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
                                                                   5 * NX_IP_PERIODIC_RATE);

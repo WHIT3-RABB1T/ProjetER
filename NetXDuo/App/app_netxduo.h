@@ -87,35 +87,55 @@ extern "C" {
 
 #define NULL_ADDRESS             0
 
-#define DEFAULT_PORT             7000
-#define UDP_SERVER_PORT          DEFAULT_PORT
-#define UDP_CLIENT_PORT          6001
-/* Broadcast: no need to know the listening PC's exact IP, just that it's on
- * the same Wi-Fi network. Match with: python3 tools/udp_listener.py --port 7000 */
-#define UDP_SERVER_ADDRESS       IP_ADDRESS(255, 255, 255, 255)
-
 #define MAX_PACKET_COUNT         100
 #define DEFAULT_MESSAGE          "NetXDuo On STM32U5-IOT"
 
 #define DEFAULT_TIMEOUT          10 * NX_IP_PERIODIC_RATE
 
-/* Periodic HTTP GET client. Unlike the UDP broadcast above, TCP needs a real
- * unicast address — this must match the laptop's actual current LAN IP
- * (check with `python3 -c "import socket;s=socket.socket(socket.AF_INET,
- * socket.SOCK_DGRAM);s.connect(('8.8.8.8',80));print(s.getsockname()[0])"`)
- * on the same Wi-Fi network as the board. Run: python3 tools/http_server.py
+/* Server discovery -- see Discover_ServerIP() in app_netxduo.c.
  *
- * This is exactly the value that went stale and caused the TLS POST to
- * fail: mobile-hotspot Wi-Fi (Android in particular) re-randomizes its
- * whole subnet on each activation, so an address hardcoded during one
- * hotspot session (10.198.244.16, from an earlier 10.198.244.0/24) silently
- * stops being the laptop once the hotspot restarts on a new subnet -- the
- * board still joins fine and gets its own new DHCP lease (confirmed via
- * serial.log: it got 10.26.76.121), but the TCP SYN it sends to the old,
- * now-nonexistent address just times out with NX_NOT_CONNECTED (0x38),
- * over and over, with nothing ever reaching the Python server. Re-check
- * this value (and rerun tools/gen_https_cert.sh, see HTTP_SERVER_HTTPS_PORT
- * below) every time the hotspot has been restarted since the last flash. */
+ * This replaces hardcoding the laptop's LAN IP, which is exactly what
+ * kept going stale and breaking the TLS POST: mobile-hotspot Wi-Fi
+ * (Android in particular) re-randomizes its whole subnet on each
+ * activation, so an address hardcoded during one hotspot session
+ * silently stops being the laptop once the hotspot restarts on a new
+ * subnet -- the board still joins fine and gets its own new DHCP lease,
+ * but the TCP SYN it sends to the old, now-nonexistent address just
+ * times out with NX_NOT_CONNECTED (0x38), over and over, with nothing
+ * ever reaching the Python server. Instead, the board broadcasts a short
+ * UDP request on the local subnet (no unicast address needed at all --
+ * 255.255.255.255 reaches every device on the same L2 segment
+ * regardless of subnet) and tools/http_server.py's discovery listener
+ * (same process, a background thread) replies -- the reply's own source
+ * IP, not anything in its payload, is the answer, so this works no
+ * matter what that machine's actual address is. Repurposes the port
+ * number (7000) this project's much older, since-removed UDP-broadcast
+ * experiment already used for the same kind of thing -- see
+ * tools/udp_listener.py, now superseded by this. */
+#define DISCOVERY_PORT               7000
+#define DISCOVERY_BROADCAST_ADDR     IP_ADDRESS(255, 255, 255, 255)
+#define DISCOVERY_REQUEST            "PROJETER_DISCOVER_SERVER_V1"
+#define DISCOVERY_REQUEST_LEN        (sizeof(DISCOVERY_REQUEST) - 1)
+#define DISCOVERY_REPLY              "PROJETER_SERVER_HERE_V1"
+#define DISCOVERY_REPLY_LEN          (sizeof(DISCOVERY_REPLY) - 1)
+#define DISCOVERY_RETRY_INTERVAL_SEC 2
+#define DISCOVERY_MAX_ATTEMPTS       15   /* ~30s total before giving up and falling back to HTTP_SERVER_ADDRESS below */
+/* Re-run discovery if this many *consecutive* poll rounds fail to even
+ * get a TLS connection started -- covers the server moving to a new IP
+ * again while the board is already running and happily connected,
+ * not just at boot. A handshake that starts but stalls (the separate,
+ * already-diagnosed NetX Secure issue the IWDG watchdog exists for)
+ * doesn't count as this kind of failure -- see the wait_option comment
+ * on nx_web_http_client_post_secure_start() in App_HTTP_Thread_Entry. */
+#define DISCOVERY_RETRIGGER_FAILURES 5
+
+/* Last-known-good fallback, used only if Discover_ServerIP() above
+ * exhausts every retry with no reply at all (e.g. tools/http_server.py
+ * genuinely isn't running yet, or a firewall is blocking the UDP reply
+ * specifically) -- Discover_ServerIP() succeeding always overrides this
+ * at runtime, so keeping this pointed at whatever the laptop's IP
+ * happened to be during the last flash is harmless, not something that
+ * needs to be kept up to date by hand any more. */
 #define HTTP_SERVER_ADDRESS      IP_ADDRESS(10, 26, 76, 16)
 #define HTTP_SERVER_HOST         "10.26.76.16"   /* string form of HTTP_SERVER_ADDRESS above, for the Host: header --
                                                        nx_web_http_client_get_start() rejects a NULL host with

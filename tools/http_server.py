@@ -49,10 +49,22 @@ AES128-SHA256 / AES256-SHA256. Modern openssl/Python defaults would happily
 negotiate TLS 1.3 or an ECDHE suite instead, which the board can't do at
 all, so both the version and the cipher list are pinned explicitly below.
 
-Needs a cert/key pair first -- run tools/gen_https_cert.sh once (or again,
-if HTTP_SERVER_ADDRESS/HOST in app_netxduo.h ever changes: the board's
-trusted root is the exact DER bytes of tools/certs/server.crt, baked into
-NetXDuo/App/https_ca_cert.h at that same generation step).
+The board no longer needs to be told this machine's IP at all: on boot (and
+again if it loses the server mid-session) it broadcasts a UDP discovery
+request on the local subnet, and discovery_responder() below answers it --
+see DISCOVERY_PORT/Discover_ServerIP() in app_netxduo.h/.c. This is what
+this file's own IP being different every time a mobile hotspot restarts
+used to break (a hardcoded HTTP_SERVER_ADDRESS going stale); discovery
+means that value is now only a same-boot-if-nothing-answers fallback on
+the board side, not something that has to be kept in sync by hand.
+
+Needs a cert/key pair first -- run tools/gen_https_cert.sh once. Rerunning
+it after this machine's IP changes is now purely cosmetic (the Subject/SAN
+IP baked into the cert): the board's trust check
+(tls_setup_callback/nx_secure_x509_certificate_initialize in app_netxduo.c)
+is pure byte-for-byte pinning of tools/certs/server.crt via
+NetXDuo/App/https_ca_cert.h, with no hostname/SAN check against whatever
+address it actually connected to.
 
 Usage:
     python3 tools/gen_https_cert.sh                # once, or after the IP changes
@@ -92,6 +104,19 @@ except ImportError:
 # (observed: well under 2s), but short enough that a connection that's
 # genuinely never going to finish gets dropped in seconds, not never.
 CONNECTION_TIMEOUT_SECONDS = 10
+
+# Must match DISCOVERY_PORT/DISCOVERY_REQUEST/DISCOVERY_REPLY in
+# NetXDuo/App/app_netxduo.h exactly -- see Discover_ServerIP() there for
+# the board side of this. The board broadcasts DISCOVERY_REQUEST to
+# 255.255.255.255:DISCOVERY_PORT (on boot, and again if it loses the
+# server mid-session); discovery_responder() below answers with
+# DISCOVERY_REPLY, sent back to the same socket the request arrived on --
+# it's that reply packet's own source IP the board reads its answer from,
+# never anything in this payload, so this file's actual current address
+# never has to be typed in anywhere.
+DISCOVERY_PORT = 7000
+DISCOVERY_REQUEST = b"PROJETER_DISCOVER_SERVER_V1"
+DISCOVERY_REPLY = b"PROJETER_SERVER_HERE_V1"
 
 # How much reading history the chart view (GET /api/history) can show --
 # a diagnostic tool's rolling window, not a long-term data log. At the
@@ -153,6 +178,34 @@ def guess_local_ip() -> str:
         return "unknown (no network route — are you connected to the hotspot?)"
     finally:
         s.close()
+
+
+def discovery_responder(port: int = DISCOVERY_PORT) -> None:
+    """Runs forever in a daemon thread (started from main(), alongside the
+    HTTPS server) answering the board's UDP broadcast discovery requests --
+    see the DISCOVERY_PORT comment above and Discover_ServerIP() in
+    app_netxduo.c for the board side. A plain UDP socket, not
+    socketserver: this only ever needs one blocking recvfrom/sendto loop,
+    nothing worth the extra machinery for. SO_REUSEADDR so a quick
+    Ctrl-C + restart doesn't have to wait out the port's TIME_WAIT."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("0.0.0.0", port))
+    print(f"Discovery responder listening on UDP 0.0.0.0:{port}", flush=True)
+    while True:
+        try:
+            data, addr = sock.recvfrom(256)
+        except OSError as e:
+            print(f"Discovery responder: recv failed: {e}", flush=True)
+            continue
+        if data == DISCOVERY_REQUEST:
+            print(f"[{time.strftime('%H:%M:%S')}] Discovery request from {addr[0]}:{addr[1]} -> replying",
+                  flush=True)
+            try:
+                sock.sendto(DISCOVERY_REPLY, addr)
+            except OSError as e:
+                print(f"Discovery responder: reply send failed: {e}", flush=True)
+        # else: some other broadcast traffic sharing this port/subnet -- ignore it.
 
 
 def format_generic(reading: dict) -> str:
@@ -807,11 +860,14 @@ def main() -> None:
     server = HTTPSServer((args.host, args.port), Handler, ctx)
     local_ip = guess_local_ip()
 
+    # Daemon: doesn't need its own clean shutdown on Ctrl-C, dies with the
+    # process same as the HTTPS server's own worker threads do.
+    threading.Thread(target=discovery_responder, daemon=True).start()
+
     print(f"Listening on TLS 1.2 (AES128-SHA256:AES256-SHA256) {args.host}:{args.port}", flush=True)
     print(f"Certificate: {args.certfile}", flush=True)
     print(f"This machine's LAN-facing IP looks like: {local_ip}", flush=True)
-    print("  -> HTTP_SERVER_ADDRESS in NetXDuo/App/app_netxduo.h must match this, on the same network as the board,", flush=True)
-    print("     and must match what tools/gen_https_cert.sh signed the certificate for.", flush=True)
+    print(f"  -> the board finds this on its own via UDP discovery (port {DISCOVERY_PORT}); no need to hardcode it.", flush=True)
     print(f"Dashboard: https://{local_ip}:{args.port}/ (browser will warn on the self-signed cert -- proceed past it)", flush=True)
     print("Waiting for requests from the board... Ctrl+C to stop.\n", flush=True)
 
