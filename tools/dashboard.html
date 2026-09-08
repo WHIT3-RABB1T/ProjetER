@@ -376,6 +376,32 @@
   }
 
   details.pem-toggle summary { cursor: pointer; color: var(--accent); font-size: 12px; margin-top: 8px; user-select: none; }
+
+  .seq-diagram {
+    display: grid;
+    grid-template-columns: 110px 1fr 110px;
+    row-gap: 22px;
+    align-items: center;
+    padding: 6px 0 4px;
+    min-height: 60px;
+  }
+  .seq-lifeline { width: 2px; background: var(--panel-border); justify-self: center; }
+  .seq-lane-label {
+    justify-self: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px;
+    color: var(--text-dim); background: var(--panel); padding: 5px 10px;
+    border: 1px solid var(--panel-border); border-radius: 6px; z-index: 1;
+  }
+  .seq-arrow-wrap {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .seq-arrow-wrap .lbl { font-size: 11.5px; font-family: var(--mono); font-weight: 600; background: var(--panel); padding: 0 6px; white-space: nowrap; }
+  .seq-arrow-wrap .line { position: relative; width: 100%; height: 10px; }
+  .seq-arrow-wrap .line .shaft { position: absolute; top: 4px; left: 0; right: 0; height: 2px; background: var(--arrow-color); }
+  .seq-arrow-wrap .line .head { position: absolute; top: 0; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .seq-arrow-wrap.c2s .line .head { right: -1px; border-left: 8px solid var(--arrow-color); }
+  .seq-arrow-wrap.s2c .line .head { left: -1px; border-right: 8px solid var(--arrow-color); }
+  .seq-arrow-wrap .meta { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
 </style>
 </head>
 <body>
@@ -447,9 +473,16 @@
     </div>
 
     <div class="crypto-section">
-      <h2>Ciphertext → Plaintext (real captured packet)</h2>
+      <h2>Ciphertext → Plaintext (live, most recent board connection)</h2>
       <div id="codec-body">
         <div class="chart-empty">loading captured sample…</div>
+      </div>
+    </div>
+
+    <div class="crypto-section">
+      <h2>Handshake sequence (live, same connection as above)</h2>
+      <div id="seq-diagram" class="seq-diagram">
+        <div class="chart-empty">loading…</div>
       </div>
     </div>
 
@@ -813,7 +846,8 @@ document.getElementById("sidebar").addEventListener("click", (e) => {
   if (!btn) return;
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
-  if (btn.dataset.tab === "crypto") loadCryptoTab();
+  if (btn.dataset.tab === "crypto") enterCryptoTab();
+  else leaveCryptoTab();
 });
 
 // ---- Cryptography tab: live TLS parameters from the board's last handshake
@@ -833,13 +867,17 @@ function updateCryptoLive(boardTls) {
   age.textContent = `${ageS}s ago`;
 }
 
-// ---- Cryptography tab: certificate/key info + a real captured packet --
+// ---- Cryptography tab: certificate/key info + a live captured exchange -
 //
-// Both fetched once, lazily, the first time this tab is actually opened
-// (no point polling data that only changes when someone reruns
-// gen_https_cert.sh or capture_crypto_sample.py by hand).
+// Cert/key info is fetched once per tab-open (it only changes if someone
+// reruns gen_https_cert.sh by hand). The ciphertext/plaintext panel and
+// the handshake sequence diagram poll GET /api/crypto-sample every
+// second *while this tab is open* -- same start/stop-on-visibility
+// pattern as the chart modal's pollHistory() -- so they track whatever
+// the board's most recent real connection actually was, live.
 
-let cryptoTabLoaded = false;
+let cryptoPollTimer = null;
+let certInfoLoaded = false;
 
 function escapeHTML(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -855,22 +893,35 @@ function hexDump(hex, bytesPerRow) {
   return rows.join("\n");
 }
 
-function loadCryptoTab() {
-  if (cryptoTabLoaded) return;
-  cryptoTabLoaded = true;
+function enterCryptoTab() {
+  if (!certInfoLoaded) {
+    certInfoLoaded = true;
+    fetch("/api/cert-info", { cache: "no-store" })
+      .then(r => r.json())
+      .then(renderCertAndKey)
+      .catch(e => {
+        document.getElementById("cert-body").innerHTML = `<div class="chart-empty">couldn't load certificate info: ${escapeHTML(e)}</div>`;
+      });
+  }
+  pollCryptoSample();
+  clearInterval(cryptoPollTimer);
+  cryptoPollTimer = setInterval(pollCryptoSample, 1000);
+}
 
+function leaveCryptoTab() {
+  clearInterval(cryptoPollTimer);
+  cryptoPollTimer = null;
+}
+
+function pollCryptoSample() {
   fetch("/api/crypto-sample", { cache: "no-store" })
     .then(r => r.json())
-    .then(renderCodec)
+    .then(sample => {
+      renderCodec(sample);
+      renderSequence(sample);
+    })
     .catch(e => {
       document.getElementById("codec-body").innerHTML = `<div class="chart-empty">couldn't load captured sample: ${escapeHTML(e)}</div>`;
-    });
-
-  fetch("/api/cert-info", { cache: "no-store" })
-    .then(r => r.json())
-    .then(renderCertAndKey)
-    .catch(e => {
-      document.getElementById("cert-body").innerHTML = `<div class="chart-empty">couldn't load certificate info: ${escapeHTML(e)}</div>`;
     });
 }
 
@@ -881,37 +932,70 @@ function renderCodec(sample) {
     return;
   }
 
-  const hex = sample.app_record_ciphertext_hex;
-  // TLS record header: 1 byte content type, 2 bytes version, 2 bytes length.
-  const recordType = parseInt(hex.slice(0, 2), 16);
-  const verMinor = parseInt(hex.slice(4, 6), 16);
-  const typeNames = { 20: "change_cipher_spec", 21: "alert", 22: "handshake", 23: "application_data" };
-  const typeName = typeNames[recordType] || ("0x" + hex.slice(0, 2));
-
   let pretty;
   try {
-    pretty = JSON.stringify(JSON.parse(sample.request_body_plaintext), null, 2);
+    pretty = JSON.stringify(JSON.parse(sample.request_plaintext), null, 2);
   } catch (e) {
-    pretty = sample.request_body_plaintext;
+    pretty = sample.request_plaintext;
   }
+  const ageS = ((Date.now() - sample.captured_at_ms) / 1000).toFixed(1);
 
   body.innerHTML = `
     <div class="codec-grid">
       <div class="codec-panel cipher">
         <div class="label">🔒 Ciphertext — as sent over the wire</div>
-        <div class="meta">TLS record: ${typeName} · TLS 1.${verMinor - 1} · ${sample.app_record_ciphertext_len} bytes</div>
-        <pre class="hexdump">${hexDump(hex)}</pre>
+        <div class="meta">${sample.request_ciphertext_hex.length / 2} bytes</div>
+        <pre class="hexdump">${hexDump(sample.request_ciphertext_hex)}</pre>
       </div>
       <div class="codec-panel plain">
         <div class="label">🔓 Plaintext — after AES decrypt + MAC verify</div>
-        <div class="meta">${escapeHTML((sample.request_headers_plaintext || "").split("\r\n")[0])} · ${sample.request_body_plaintext.length} bytes</div>
+        <div class="meta">POST /sensors · ${sample.request_plaintext.length} bytes</div>
         <pre class="jsonblock">${escapeHTML(pretty)}</pre>
       </div>
     </div>
-    <p class="caption">Real board connection (${escapeHTML(sample.client_ip)}), captured ${escapeHTML(sample.captured_at)} —
-      ${escapeHTML(sample.tls_version)} / ${escapeHTML(sample.cipher)} (${sample.bits}-bit). Handshake itself:
-      ${sample.handshake_ciphertext_len} bytes exchanged (${sample.handshake_bytes_client_to_server}→ / ${sample.handshake_bytes_server_to_client}←).</p>
+    <p class="caption">Real board connection (${escapeHTML(sample.client_ip)}) — ${escapeHTML(sample.tls_version)} /
+      ${escapeHTML(sample.cipher)} (${sample.bits}-bit) — captured ${ageS}s ago. Response:
+      "${escapeHTML(sample.response_plaintext.trim())}" (${sample.response_ciphertext_hex.length / 2} bytes ciphertext).</p>
   `;
+}
+
+// One color per TLS record content type, shared between the sequence
+// diagram's arrows and (for consistency) implied by the red/green
+// cipher/plain panel styling above.
+const SEQ_COLORS = { Handshake: "#4da3ff", ChangeCipherSpec: "#e8b339", ApplicationData: "#3ecf8e" };
+
+function seqRow(row, direction, label, meta, colorKey) {
+  const color = SEQ_COLORS[colorKey] || "#8892a4";
+  return `<div class="seq-arrow-wrap ${direction}" style="grid-column:2; grid-row:${row}; --arrow-color:${color}">
+    <div class="lbl" style="color:${color}">${escapeHTML(label)}</div>
+    <div class="line"><div class="shaft"></div><div class="head"></div></div>
+    <div class="meta">${escapeHTML(meta)}</div>
+  </div>`;
+}
+
+function renderSequence(sample) {
+  const wrap = document.getElementById("seq-diagram");
+  if (sample.error || !sample.handshake_sequence) {
+    wrap.innerHTML = `<div class="chart-empty">${escapeHTML(sample.error || "no handshake captured yet")}</div>`;
+    return;
+  }
+  let html = `
+    <div class="seq-lifeline" style="grid-column:1; grid-row:1 / -1"></div>
+    <div class="seq-lifeline" style="grid-column:3; grid-row:1 / -1"></div>
+    <div class="seq-lane-label" style="grid-column:1; grid-row:1">📟 BOARD</div>
+    <div class="seq-lane-label" style="grid-column:3; grid-row:1">🖥️ SERVER</div>
+  `;
+  let row = 2;
+  for (const rec of sample.handshake_sequence) {
+    html += seqRow(row++, rec.direction, rec.handshake_type_name || rec.content_type_name,
+                   `${rec.length} bytes`, rec.content_type_name);
+  }
+  html += seqRow(row++, "c2s", "Application Data (POST /sensors)",
+                 `${sample.request_ciphertext_hex.length / 2} bytes`, "ApplicationData");
+  html += seqRow(row++, "s2c", "Application Data (response)",
+                 `${sample.response_ciphertext_hex.length / 2} bytes`, "ApplicationData");
+  wrap.style.gridTemplateRows = `repeat(${row - 1}, auto)`;
+  wrap.innerHTML = html;
 }
 
 function renderCertAndKey(info) {

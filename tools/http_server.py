@@ -26,17 +26,17 @@ GET / serves dashboard.html, a live browser dashboard with two tabs
     category's history (GET /api/history?category=<name>, polled while
     the chart is open) -- see HISTORY_WINDOW_SECONDS below for how much
     is kept.
-  - Cryptography: the cipher suites offered (GET /api/latest's
-    "board_tls" field, from _tls_by_ip below, shows the board's real
-    last-negotiated version/cipher/bits), the server's actual certificate
-    and key pair (GET /api/cert-info -- parses tools/certs/server.crt/
-    .key fresh on every request via the `cryptography` package; the
-    private key's raw bytes are deliberately never included, type/size
-    only), and a real captured (ciphertext, plaintext) pair from an
-    actual board connection (GET /api/crypto-sample, reading
-    tools/crypto_sample.json -- see tools/capture_crypto_sample.py for
-    how and why that has to be captured as a separate one-off script
-    rather than something this server does continuously).
+  - Cryptography: the cipher suites offered, the server's actual
+    certificate and key pair (GET /api/cert-info -- parses
+    tools/certs/server.crt/.key fresh on every request via the
+    `cryptography` package; the private key's raw bytes are deliberately
+    never included, type/size only), and a live view of the most recent
+    real board connection: its actual handshake message sequence and the
+    real ciphertext/plaintext of its request and response
+    (GET /api/crypto-sample, polled every ~1s while that tab is open --
+    see _TLSConnection and _publish_crypto_sample below for how the raw
+    wire bytes are captured at all, which plain ssl.wrap_socket() cannot
+    do).
 Any other GET path still gets the old plaintext greeting, e.g. for a
 quick curl-reachability check.
 
@@ -64,6 +64,7 @@ Stop with Ctrl+C.
 
 import argparse
 import collections
+import io
 import json
 import os
 import socket
@@ -114,8 +115,7 @@ _history = collections.deque(maxlen=HISTORY_MAX_ENTRIES)  # [(t_ms, reading_dict
 
 # Set once in main() from --certfile/--keyfile; read by _serve_cert_info_json
 # (parses the cert/key fresh on every request, same "always current, no
-# caching" rule as dashboard.html) and _serve_crypto_sample_json (locates
-# the sibling crypto_sample.json).
+# caching" rule as dashboard.html).
 _cert_path = None
 _key_path = None
 
@@ -131,6 +131,15 @@ _key_path = None
 # IP that has ever connected, which on a private board<->laptop link is a
 # small, fixed set (the board and whoever's browser).
 _tls_by_ip = {}
+
+# The most recent real board POST's full crypto picture -- handshake
+# message sequence plus the actual request/response ciphertext and
+# plaintext -- for the Cryptography tab's live panels. Written only from
+# do_POST (never from a GET, so the dashboard's own polling can't drown
+# this out the same way _tls_by_ip is keyed by IP to avoid), read by
+# _serve_crypto_sample_json. None until the first real POST /sensors
+# after this server started.
+_live_crypto_sample = None
 
 
 def guess_local_ip() -> str:
@@ -186,6 +195,198 @@ CATEGORY_FORMATTERS = {
     "light": format_generic,
     "ranging": format_ranging,
 }
+
+
+# --- Raw-ciphertext-visible TLS connection, for the Cryptography tab ------
+#
+# ssl.SSLContext.wrap_socket() -- used everywhere else in this file until
+# now -- does its handshake and all reads/writes directly against the OS
+# file descriptor inside OpenSSL's C code. The encrypted bytes never pass
+# through anything at the Python level, so there is no way to observe them
+# from outside (confirmed empirically while building this: subclassing
+# socket.socket and overriding recv()/send() is simply never called during
+# a real wrap_socket()-based connection). Seeing the actual ciphertext
+# requires ssl.MemoryBIO instead: manually pumping encrypted bytes between
+# the raw socket and the TLS state machine ourselves. _TLSConnection below
+# does exactly that, implementing only the handful of methods
+# BaseHTTPRequestHandler/socketserver actually call on what get_request()
+# hands back (settimeout, recv, sendall, makefile, close, cipher, version),
+# so it's a drop-in replacement for the ssl.SSLSocket wrap_socket() used to
+# return -- every other line of this server (do_GET/do_POST, threading,
+# the connection timeout, etc.) is unchanged.
+#
+# Every raw chunk that crosses the wire in either direction is recorded
+# into self.chunks, tagged with direction and a timestamp -- both the
+# handshake (parsed into individual TLS records by _parse_tls_records,
+# for the live sequence diagram) and whatever comes after (do_POST pulls
+# the request/response ciphertext straight from here).
+
+_HANDSHAKE_TYPE_NAMES = {
+    0: "HelloRequest", 1: "ClientHello", 2: "ServerHello", 4: "NewSessionTicket",
+    11: "Certificate", 12: "ServerKeyExchange", 13: "CertificateRequest",
+    14: "ServerHelloDone", 15: "CertificateVerify", 16: "ClientKeyExchange", 20: "Finished",
+}
+_CONTENT_TYPE_NAMES = {20: "ChangeCipherSpec", 21: "Alert", 22: "Handshake", 23: "ApplicationData"}
+
+
+def _parse_tls_records(chunks):
+    """chunks: [(direction, bytes, t_ms), ...] in wire order. Returns one
+    dict per TLS record found -- {direction, content_type_name, length,
+    t_ms, handshake_type_name (or None)} -- reassembling records split
+    across chunks and splitting chunks that contain more than one record.
+    Just enough of the TLS record framing (5-byte header: 1 byte content
+    type, 2 bytes version, 2 bytes length) to drive the sequence diagram;
+    not a general-purpose TLS parser. A handshake record's first payload
+    byte names the specific message (ClientHello, Certificate, ...) up
+    until that direction's ChangeCipherSpec; every Handshake record after
+    that (i.e. Finished) is genuinely encrypted at this layer, so it's
+    labeled generically rather than misread as a length byte."""
+    records = []
+    buf = b""
+    buf_dir = None
+    seen_ccs = {"c2s": False, "s2c": False}
+
+    for direction, data, t_ms in chunks:
+        if buf and buf_dir != direction:
+            buf = b""  # direction switched mid-record -- shouldn't happen in a normal handshake; drop the stub rather than misparse
+        buf_dir = direction
+        buf += data
+        while len(buf) >= 5:
+            content_type = buf[0]
+            length = (buf[3] << 8) | buf[4]
+            if len(buf) < 5 + length:
+                break
+            payload = buf[5:5 + length]
+            handshake_type_name = None
+            if content_type == 22:
+                handshake_type_name = (
+                    "Finished (encrypted)" if seen_ccs[direction]
+                    else _HANDSHAKE_TYPE_NAMES.get(payload[0] if payload else -1, "Unknown")
+                )
+            elif content_type == 20:
+                seen_ccs[direction] = True
+            records.append({
+                "direction": direction,
+                "content_type_name": _CONTENT_TYPE_NAMES.get(content_type, f"0x{content_type:02x}"),
+                "length": length,
+                "t_ms": t_ms,
+                "handshake_type_name": handshake_type_name,
+            })
+            buf = buf[5 + length:]
+    return records
+
+
+class _TLSRawIO(io.RawIOBase):
+    """The unbuffered file object _TLSConnection.makefile() wraps in an
+    io.BufferedReader/Writer -- plain socket.makefile() insists on a real
+    socket.socket, which _TLSConnection isn't."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def readable(self):
+        return True
+
+    def writable(self):
+        return True
+
+    def readinto(self, b):
+        data = self._conn.recv(len(b))
+        n = len(data)
+        b[:n] = data
+        return n
+
+    def write(self, b):
+        self._conn.sendall(bytes(b))
+        return len(b)
+
+
+class _TLSConnection:
+    def __init__(self, raw_sock, ssl_context, server_side=True):
+        self._sock = raw_sock
+        self._incoming = ssl.MemoryBIO()
+        self._outgoing = ssl.MemoryBIO()
+        self._sslobj = ssl_context.wrap_bio(self._incoming, self._outgoing, server_side=server_side)
+        self.chunks = []  # [(direction, bytes, t_ms), ...] -- every raw chunk, handshake and app data alike
+        self._do_handshake()
+        self.handshake_chunk_count = len(self.chunks)
+
+    def _pump_out(self):
+        data = self._outgoing.read()
+        if data:
+            self.chunks.append(("s2c", data, int(time.time() * 1000)))
+            self._sock.sendall(data)
+
+    def _pump_in(self):
+        data = self._sock.recv(65536)
+        if not data:
+            raise ConnectionError("peer closed the connection")
+        self.chunks.append(("c2s", data, int(time.time() * 1000)))
+        self._incoming.write(data)
+
+    def _do_handshake(self):
+        while True:
+            try:
+                self._sslobj.do_handshake()
+                self._pump_out()
+                return
+            except ssl.SSLWantReadError:
+                self._pump_out()
+                self._pump_in()
+
+    def settimeout(self, t):
+        self._sock.settimeout(t)
+
+    def recv(self, n):
+        while True:
+            try:
+                return self._sslobj.read(n)
+            except ssl.SSLWantReadError:
+                self._pump_in()
+            except ssl.SSLZeroReturnError:
+                return b""
+
+    def sendall(self, data):
+        self._sslobj.write(data)
+        self._pump_out()
+
+    send = sendall
+
+    def makefile(self, mode, bufsize=-1):
+        raw = _TLSRawIO(self)
+        if "r" in mode:
+            return io.BufferedReader(raw)
+        return raw if bufsize == 0 else io.BufferedWriter(raw)
+
+    def cipher(self):
+        return self._sslobj.cipher()
+
+    def version(self):
+        return self._sslobj.version()
+
+    def fileno(self):
+        return self._sock.fileno()
+
+    def shutdown(self, how):
+        # socketserver.TCPServer.shutdown_request() calls this directly on
+        # whatever get_request() returned, in a `finally` block, before
+        # close_request() (-> our own close() below) -- without this,
+        # that call raises AttributeError (uncaught by its own
+        # `except OSError`), close_request() never runs, and the
+        # underlying socket fd leaks on every single connection. Plain
+        # passthrough is correct: at this point the TLS layer has nothing
+        # left to say, it's just the raw TCP half-close.
+        self._sock.shutdown(how)
+
+    def close(self):
+        try:
+            self._sslobj.unwrap()
+            self._pump_out()
+        except (ssl.SSLError, OSError):
+            pass
+        try:
+            self._sock.close()
+        except OSError:
+            pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -350,24 +551,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _serve_crypto_sample_json(self):
-        # Backs the Cryptography tab's ciphertext/plaintext panel -- a
-        # real (not simulated) TLS record captured from an actual board
-        # connection by tools/capture_crypto_sample.py (see that file for
-        # why this has to be a separate one-off capture rather than
-        # something this server does continuously). Just relays whatever
-        # is currently in tools/crypto_sample.json; a 404-shaped response
-        # if that capture has never been run yet.
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crypto_sample.json")
-        try:
-            with open(path, "rb") as f:
-                payload = f.read()
-            status = 200
-        except OSError:
-            payload = json.dumps({
-                "error": "no capture yet -- run tools/capture_crypto_sample.py (see its docstring)",
-            }).encode()
-            status = 200  # still 200: this is a normal, expected state before the first capture
-        self.send_response(status)
+        # Backs the Cryptography tab's live ciphertext/plaintext panels
+        # and handshake sequence diagram -- dashboard.html polls this
+        # every ~1s while that tab is open. Just relays whatever
+        # _live_crypto_sample currently holds (see _TLSConnection and
+        # _publish_crypto_sample above for how it gets there); a plain
+        # "nothing yet" object before the first real board POST since
+        # this server started.
+        with _state_lock:
+            sample = _live_crypto_sample
+        payload = json.dumps(sample if sample else {
+            "error": "no board connection captured yet since this server started",
+        }).encode()
+        self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
@@ -400,6 +596,7 @@ class Handler(BaseHTTPRequestHandler):
             # this is also what an even older firmware build's plain
             # decimal counter looks like.
             print(f"    non-JSON body on {self.path} ({e}): {raw!r}", flush=True)
+            reading = None
             reply = b"ack (unparsed)\n"
         else:
             if not isinstance(reading, dict):
@@ -438,6 +635,51 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
         self.wfile.write(reply)
+
+        if isinstance(reading, dict) and reading:
+            # After the response is actually sent, not before -- the
+            # response's own ciphertext (recorded into self.connection's
+            # chunks by wfile.write() above, same as the request was by
+            # rfile.read()) is part of what this shows.
+            self._publish_crypto_sample(raw, reply)
+
+    def _publish_crypto_sample(self, raw, reply):
+        # Feeds the Cryptography tab's live ciphertext/plaintext panels
+        # and handshake sequence diagram (GET /api/crypto-sample). Only
+        # called for a real, successfully-parsed board reading (see
+        # do_POST above) -- naturally excludes the dashboard's own GET
+        # traffic without needing to filter by IP, since a GET never
+        # reaches this method at all.
+        conn = self.connection
+        if not hasattr(conn, "chunks"):
+            return  # only _TLSConnection (see above) carries this
+        try:
+            handshake_chunks = conn.chunks[:conn.handshake_chunk_count]
+            app_chunks = conn.chunks[conn.handshake_chunk_count:]
+            request_ciphertext = b"".join(d for direction, d, _ in app_chunks if direction == "c2s")
+            response_ciphertext = b"".join(d for direction, d, _ in app_chunks if direction == "s2c")
+            cipher_name, _, secret_bits = conn.cipher()
+            sample = {
+                "captured_at_ms": int(time.time() * 1000),
+                "client_ip": self.client_address[0],
+                "tls_version": conn.version(),
+                "cipher": cipher_name,
+                "bits": secret_bits,
+                "handshake_sequence": _parse_tls_records(handshake_chunks),
+                "request_ciphertext_hex": request_ciphertext.hex(),
+                "request_plaintext": raw.decode(errors="replace"),
+                "response_ciphertext_hex": response_ciphertext.hex(),
+                "response_plaintext": reply.decode(errors="replace"),
+            }
+        except Exception as e:
+            # This is a purely cosmetic capture, well after the real
+            # response already went out -- never let a bug here look like
+            # a real request failure in the log.
+            print(f"    (crypto-sample capture failed: {e})", flush=True)
+            return
+        global _live_crypto_sample
+        with _state_lock:
+            _live_crypto_sample = sample
 
     def log_message(self, format, *args):
         ts = time.strftime("%H:%M:%S")
@@ -493,7 +735,11 @@ class HTTPSServer(socketserver.ThreadingMixIn, HTTPServer):
         conn, addr = super().get_request()
         conn.settimeout(CONNECTION_TIMEOUT_SECONDS)
         try:
-            tls_conn = self.ssl_context.wrap_socket(conn, server_side=True)
+            # _TLSConnection, not ssl_context.wrap_socket(): same
+            # handshake, same negotiated parameters, but keeps every raw
+            # ciphertext byte visible to us -- see the class comment above
+            # for why plain wrap_socket() can't do that at all.
+            tls_conn = _TLSConnection(conn, self.ssl_context, server_side=True)
             # Proof this is a real, negotiated TLS channel (not merely "on
             # port 8443") -- exactly what a browser's padlock/certificate
             # details show: the actual protocol version and cipher suite
