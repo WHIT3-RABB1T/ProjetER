@@ -1147,12 +1147,15 @@ function updateDemoOrientation(data) {
   const gyro = reading.gyroscope;
 
   if (accel && typeof accel.x === "number") {
-    // Board flat & level -> az ~= +1000mg (gravity along its Z axis),
-    // ax ~= ay ~= 0. atan2 against az gives a clean 0-90° tilt angle
-    // straight out of the gravity vector's direction, no small-angle
-    // approximation needed.
-    const pitch = Math.atan2(-accel.x, Math.sqrt(accel.y * accel.y + accel.z * accel.z)) * 180 / Math.PI;
-    const roll = Math.atan2(accel.y, accel.z) * 180 / Math.PI;
+    // Board flat & level -> ax ~= +1000mg -- confirmed against the real
+    // board (this was originally written assuming Z was the vertical
+    // axis, which was backwards: the ISM330DHCX's X axis is the one
+    // that points up/down when the board sits flat on a table, not Z).
+    // ay ~= az ~= 0 in that position. atan2 against ax gives a clean
+    // 0-90° tilt angle straight out of the gravity vector's direction,
+    // no small-angle approximation needed.
+    const pitch = Math.atan2(-accel.z, Math.sqrt(accel.y * accel.y + accel.x * accel.x)) * 180 / Math.PI;
+    const roll = Math.atan2(accel.y, accel.x) * 180 / Math.PI;
     document.getElementById("demo-pitch").textContent = pitch.toFixed(1) + "°";
     document.getElementById("demo-roll").textContent = roll.toFixed(1) + "°";
     document.getElementById("demo-board").style.transform =
