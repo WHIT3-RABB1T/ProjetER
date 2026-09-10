@@ -160,16 +160,26 @@ extern "C" {
  * so tuning this only ever adjusted the gap on top of that fixed floor.
  * Now that the same connection is reused round after round (HTTP/1.1
  * keep-alive -- same comment), that floor is gone for every round except
- * the rare one that actually needs a fresh handshake: the real per-round
- * cost is just AES-128-CBC/HMAC-SHA256 over a small JSON body plus
- * however long the Wi-Fi round trip takes, both far under a millisecond
- * to low tens of milliseconds. 1ms (not 0): tx_thread_sleep(0) is a
- * documented no-op in ThreadX (_tx_thread_sleep() returns immediately
- * without suspending at all for a 0-tick request), so this is the
- * smallest value that still puts a real tick-boundary yield between
- * rounds rather than one round's tx_web_http_* calls running back-to-back
- * with literally nothing between them. */
-#define HTTP_POLL_PERIOD_MS      1
+ * the rare one that actually needs a fresh handshake.
+ *
+ * This was briefly pushed all the way down to 1ms (essentially
+ * unthrottled -- back-to-back nx_web_http_client_post_secure_start()
+ * calls with nothing but a single tick between them), on the theory that
+ * the only remaining per-round cost was a few AES-128-CBC/HMAC-SHA256
+ * blocks plus one Wi-Fi round trip. Real-hardware testing said otherwise:
+ * that pace was enough to occasionally wedge the Wi-Fi module itself --
+ * see the "sibling of that same bug class" paragraph in the watchdog
+ * comment above -- hard enough that the *board* needed a full IWDG reset
+ * to recover, not just this connection. Backed off to 50ms, still a
+ * large improvement over the pre-reuse cadence (previously bottlenecked
+ * at one RSA handshake, ~500-650ms, per round no matter what this
+ * constant said), while giving the Wi-Fi driver enough breathing room
+ * between rounds that it hasn't been observed wedging at this pace. Not
+ * derived from a specific measurement of the module's real ceiling --
+ * there's no visibility into the vendored driver to find that
+ * precisely -- so treat this value as a starting point, not a proven
+ * safe minimum. */
+#define HTTP_POLL_PERIOD_MS      50
 
 /* The response-read loop in App_HTTP_Thread_Entry used to hand
  * nx_web_http_client_response_body_get() one flat 5-second wait_option

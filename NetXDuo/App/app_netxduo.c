@@ -101,6 +101,28 @@ static volatile ULONG DiagHeartbeatTicks;
  * had no effect on this particular failure mode. Not something fixable
  * from application code short of patching vendored middleware blind.
  *
+ * A sibling of that same bug class, found later by reading a serial log
+ * where the (now full-round, see the comment above App_HTTP_Thread_Entry)
+ * heartbeat kept firing for ~10-12s straight with tcp_state=5
+ * (NX_TCP_ESTABLISHED) and tcp_outstanding_bytes=0 the entire time --
+ * i.e. genuinely nothing left to send or wait on at the TCP level, yet
+ * whichever call was in progress (request_packet_allocate/put_packet,
+ * both already given a short HTTP_SEND_TIMEOUT_TICKS -- see
+ * app_netxduo.h) never returned anyway. Traced to
+ * _nx_tcp_socket_send_internal() (nx_tcp_socket_send_internal.c):
+ * several tx_mutex_get(&(ip_ptr -> nx_ip_protection), TX_WAIT_FOREVER)
+ * calls, guarding the IP instance's shared state, all hardcoded the same
+ * way -- so if that mutex is held elsewhere for a while (the Wi-Fi
+ * driver's own SPI-level command processing has a documented ~10s
+ * internal timeout, see APP_THREAD_PRIORITY's comment above on SPI
+ * thread starvation, and separately mx_wifi_conf.h's MX_WIFI_CMD_TIMEOUT),
+ * put_packet blocks for that whole stretch no matter what wait_option it
+ * was given, same as the TLS case above. Checked every occurrence in one
+ * real serial log (13 of them): all 13 ended in an IWDG reset, none
+ * recovered on their own even given the full ~10-12s before the reset
+ * hit -- so unlike the TLS case, there's no evidence this one would ever
+ * resolve if simply given more time to wait; the reset isn't cutting off
+ * a recovery that was about to happen. */
  * IWDG is the backstop that actually works regardless: WatchdogTimer
  * polls, every 2s, whether App_HTTP_Thread_Entry's poll loop has made
  * progress (WatchdogLastProgressTick, stamped at the top of that loop --
@@ -212,7 +234,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v7-heartbeat-covers-full-round ===\r\n");
+  printf("=== BUILD_MARKER: diag-v8-poll-period-50ms ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* See tx_user.h (TX_ENABLE_STACK_CHECKING) and diag_stack_error_notify
