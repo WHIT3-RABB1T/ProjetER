@@ -402,6 +402,136 @@
   .seq-arrow-wrap.c2s .line .head { right: -1px; border-left: 8px solid var(--arrow-color); }
   .seq-arrow-wrap.s2c .line .head { left: -1px; border-right: 8px solid var(--arrow-color); }
   .seq-arrow-wrap .meta { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
+
+  /* ---- Demo tab: live 3D orientation ---- */
+  .demo-layout {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .demo-stage {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    flex: 1;
+    min-width: 320px;
+    height: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Floor grid purely for depth cues -- a plain flat background gives a
+     3D-transformed box nothing to visually rotate "against". */
+  .demo-floor {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(77,163,255,0.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(77,163,255,0.10) 1px, transparent 1px);
+    background-size: 36px 36px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 55%, #000 40%, transparent 78%);
+            mask-image: radial-gradient(ellipse 70% 60% at 50% 55%, #000 40%, transparent 78%);
+  }
+  .demo-scene {
+    perspective: 900px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* transform-style + will-change on a wrapper, not the board itself, so
+     the board's own box-shadow (drawn in the same 3D space) doesn't get
+     flattened by the parent's perspective in some browsers. */
+  .demo-gimbal {
+    transform-style: preserve-3d;
+  }
+  .demo-board {
+    width: 260px;
+    height: 160px;
+    border-radius: 14px;
+    background: linear-gradient(155deg, #1f2530, #12151c 60%, #0b0d12);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.03);
+    transform-style: preserve-3d;
+    transition: transform 90ms linear;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    position: relative;
+  }
+  /* The one asymmetric marking on an otherwise mirror-symmetric rectangle
+     -- without this, a yaw (spin) rotation is nearly invisible, since a
+     plain rounded rectangle looks the same rotated 180°. */
+  .demo-board::before {
+    content: "";
+    position: absolute;
+    top: 10px; left: 50%;
+    width: 10px; height: 10px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: var(--bad);
+    box-shadow: 0 0 10px 2px rgba(232,93,93,0.6);
+  }
+  .demo-board .chip {
+    width: 46px; height: 46px;
+    border-radius: 6px;
+    background: #05060a;
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+  .demo-board .label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+  }
+  .demo-readout {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    width: 220px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .demo-readout .axis-block .k {
+    display: block;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .demo-readout .axis-block .v {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .demo-readout .axis-block .src {
+    font-size: 10.5px;
+    color: var(--text-dim);
+  }
+  #demo-recenter {
+    margin-top: 4px;
+    background: rgba(77,163,255,0.15);
+    color: var(--accent);
+    border: 1px solid rgba(77,163,255,0.3);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #demo-recenter:hover { background: rgba(77,163,255,0.25); }
+  .demo-note { color: var(--text-dim); font-size: 11.5px; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -410,6 +540,7 @@
   <div class="brand">Board Console</div>
   <button class="tab-btn active" data-tab="dashboard"><span class="icon">📊</span>Dashboard</button>
   <button class="tab-btn" data-tab="crypto"><span class="icon">🔒</span>Cryptography</button>
+  <button class="tab-btn" data-tab="demo"><span class="icon">🧭</span>Demo</button>
 </nav>
 
 <main id="content">
@@ -497,6 +628,49 @@
       <h2>Key pair</h2>
       <div id="key-body" class="key-cards">
         <div class="chart-empty">loading key info…</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-demo" class="tab-panel">
+    <h1>🧭 Demo — Live Orientation</h1>
+
+    <div class="demo-layout">
+      <div class="demo-stage">
+        <div class="demo-floor"></div>
+        <div class="demo-scene">
+          <div class="demo-gimbal">
+            <div class="demo-board" id="demo-board">
+              <div class="chip"></div>
+              <span class="label">ISM330DHCX</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo-readout">
+        <div class="axis-block">
+          <span class="k">Pitch</span>
+          <span class="v" id="demo-pitch">0.0°</span>
+          <span class="src">accelerometer</span>
+        </div>
+        <div class="axis-block">
+          <span class="k">Roll</span>
+          <span class="v" id="demo-roll">0.0°</span>
+          <span class="src">accelerometer</span>
+        </div>
+        <div class="axis-block">
+          <span class="k">Yaw</span>
+          <span class="v" id="demo-yaw">0.0°</span>
+          <span class="src">gyroscope (integrated)</span>
+        </div>
+        <button id="demo-recenter">Recenter yaw</button>
+        <p class="demo-note">
+          Tilt (pitch/roll) comes straight from the accelerometer's gravity
+          vector. Turn (yaw) is the gyroscope's rotation rate integrated
+          over time, so it drifts slowly the longer it runs — recenter it
+          any time.
+        </p>
       </div>
     </div>
   </section>
@@ -848,6 +1022,8 @@ document.getElementById("sidebar").addEventListener("click", (e) => {
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
   if (btn.dataset.tab === "crypto") enterCryptoTab();
   else leaveCryptoTab();
+  if (btn.dataset.tab === "demo") enterDemoTab();
+  else leaveDemoTab();
 });
 
 // ---- Cryptography tab: live TLS parameters from the board's last handshake
@@ -911,6 +1087,99 @@ function enterCryptoTab() {
 function leaveCryptoTab() {
   clearInterval(cryptoPollTimer);
   cryptoPollTimer = null;
+}
+
+// ---- Demo tab: the board's real accelerometer/gyroscope, live, as a
+// tilting/turning 3D rectangle -----------------------------------------
+//
+// Pitch/roll come straight from the accelerometer's gravity vector --
+// {"x","y","z"} in mg (milli-g), see Core/Src/sensors.c's read_accelerometer()
+// -- so they're absolute and never drift, just noisy/jumpy the more the
+// board is actually shaken. Yaw can't come from gravity at all (it points
+// the same way no matter how the board spins flat), so it's the
+// gyroscope's z-axis rotation *rate* ({"x","y","z"} in mdps, i.e.
+// millidegrees/second) integrated over real elapsed time each poll --
+// accurate turn-by-turn, but with no absolute reference it slowly wanders
+// the longer it runs, hence the recenter button.
+//
+// Polls /api/latest on its own dedicated, much faster timer (DEMO_POLL_MS)
+// while this tab is open, same start/stop-on-visibility pattern as the
+// crypto tab's pollCryptoSample -- separate from the main dashboard's
+// POLL_MS, which is tuned for numeric tiles refreshing smoothly, not a
+// live tilt animation that would look choppy at that rate.
+
+const DEMO_POLL_MS = 100;
+let demoPollTimer = null;
+let demoYawDeg = 0;
+let demoLastReadingAt = null;  // updated_at_ms of the last reading actually integrated
+
+function enterDemoTab() {
+  demoLastReadingAt = null;  // don't integrate yaw across the gap while this tab was closed
+  pollDemo();
+  clearInterval(demoPollTimer);
+  demoPollTimer = setInterval(pollDemo, DEMO_POLL_MS);
+}
+
+function leaveDemoTab() {
+  clearInterval(demoPollTimer);
+  demoPollTimer = null;
+}
+
+document.getElementById("demo-recenter").addEventListener("click", () => {
+  demoYawDeg = 0;
+  document.getElementById("demo-yaw").textContent = "0.0°";
+});
+
+function pollDemo() {
+  fetch("/api/latest", { cache: "no-store" })
+    .then(r => r.json())
+    .then(updateDemoOrientation)
+    .catch(e => {
+      // Transient fetch failure -- next poll (100ms away) tries again;
+      // nothing worth showing an error for on a live animation.
+    });
+}
+
+function updateDemoOrientation(data) {
+  const reading = data.reading;
+  if (!reading) return;
+  const accel = reading.accelerometer;
+  const gyro = reading.gyroscope;
+
+  if (accel && typeof accel.x === "number") {
+    // Board flat & level -> az ~= +1000mg (gravity along its Z axis),
+    // ax ~= ay ~= 0. atan2 against az gives a clean 0-90° tilt angle
+    // straight out of the gravity vector's direction, no small-angle
+    // approximation needed.
+    const pitch = Math.atan2(-accel.x, Math.sqrt(accel.y * accel.y + accel.z * accel.z)) * 180 / Math.PI;
+    const roll = Math.atan2(accel.y, accel.z) * 180 / Math.PI;
+    document.getElementById("demo-pitch").textContent = pitch.toFixed(1) + "°";
+    document.getElementById("demo-roll").textContent = roll.toFixed(1) + "°";
+    document.getElementById("demo-board").style.transform =
+      `rotateY(${demoYawDeg}deg) rotateX(${-pitch}deg) rotateZ(${roll}deg)`;
+  }
+
+  // /api/latest always re-returns the same last reading between board
+  // updates -- integrating gyro against wall-clock polling time (rather
+  // than against how much time the reading itself actually advanced by)
+  // would re-apply that same angular rate on every single 100ms poll,
+  // including forever after the board stops sending entirely, since
+  // nothing here would ever notice the data had gone stale. Using
+  // data.updated_at_ms's own delta instead means a genuinely new board
+  // reading is what advances yaw, by exactly the real time it covers --
+  // polling faster or slower than the board sends doesn't change the
+  // result, and a reading that stops updating correctly stops turning.
+  if (gyro && typeof gyro.z === "number" && data.updated_at_ms) {
+    if (demoLastReadingAt !== null && data.updated_at_ms > demoLastReadingAt) {
+      const dtSec = (data.updated_at_ms - demoLastReadingAt) / 1000;
+      // Capped so a long gap (page was backgrounded, board was briefly
+      // offline) doesn't dump a huge chunk of stale rotation rate in
+      // all at once when it resumes.
+      demoYawDeg += (gyro.z / 1000) * Math.min(dtSec, 0.5);
+      document.getElementById("demo-yaw").textContent = (((demoYawDeg % 360) + 360) % 360).toFixed(1) + "°";
+    }
+    demoLastReadingAt = data.updated_at_ms;
+  }
 }
 
 function pollCryptoSample() {
