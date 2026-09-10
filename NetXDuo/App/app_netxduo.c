@@ -212,7 +212,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v6-driverlog-reverted ===\r\n");
+  printf("=== BUILD_MARKER: diag-v7-heartbeat-covers-full-round ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* See tx_user.h (TX_ENABLE_STACK_CHECKING) and diag_stack_error_notify
@@ -351,10 +351,12 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
 
   /* Diagnostic heartbeat timer -- created once here, TX_NO_ACTIVATE (idle
    * until App_HTTP_Thread_Entry arms it with tx_timer_change +
-   * tx_timer_activate right before each post_secure_start call, then
-   * disarms it with tx_timer_deactivate right after). initial/reschedule
-   * ticks here are placeholders, always overwritten by tx_timer_change
-   * before use. */
+   * tx_timer_activate right before post_secure_start, then disarms it with
+   * tx_timer_deactivate on whichever of that round's several exit paths
+   * actually gets hit -- see the big comment right before that
+   * tx_timer_activate call for why it now stays armed for the whole round,
+   * not just this one call). initial/reschedule ticks here are
+   * placeholders, always overwritten by tx_timer_change before use. */
   ret = tx_timer_create(&DiagHeartbeatTimer, "Diag Heartbeat", diag_heartbeat_entry, 0,
                         2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND, TX_NO_ACTIVATE);
   if (ret != TX_SUCCESS)
@@ -1028,10 +1030,18 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
              * of each handshake either way. */
             print_pool_status("before post_secure_start");
             t0 = tx_time_get();
-            /* Arm the heartbeat: every 2s from here until the call returns,
-             * diag_heartbeat_entry() prints elapsed time + pool + TCP socket
-             * state -- this is what turns a previously-silent multi-second
-             * gap during the handshake into a live trace. */
+            /* Arm the heartbeat: every 2s from here, diag_heartbeat_entry()
+             * prints elapsed time + pool + TCP socket state -- what turns a
+             * previously-silent multi-second gap into a live trace. Stays
+             * armed for the *entire* round now, not just this call: request_
+             * packet_allocate/put_packet/the response-read loop below all
+             * used to run with the heartbeat already deactivated, so a stall
+             * inside any of them (the real hardware case that motivated
+             * HTTP_SEND_TIMEOUT_TICKS -- see its comment in app_netxduo.h)
+             * produced total silence right up until either it recovered or
+             * the IWDG reset the board, with no evidence of where it was
+             * actually stuck. Deactivated on every exit path below instead
+             * of unconditionally right after this call returns. */
             DiagHeartbeatT0 = t0;
             DiagHeartbeatTicks = 0;
             tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
@@ -1039,11 +1049,11 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                         HTTP_RESOURCE, ServerHost, NX_NULL, NX_NULL,
                                                         body_len, tls_setup_callback, 8 * NX_IP_PERIODIC_RATE);
-            tx_timer_deactivate(&DiagHeartbeatTimer);
             elapsed_ms = (tx_time_get() - t0) * 1000UL / TX_TIMER_TICKS_PER_SECOND;
             print_pool_status("after post_secure_start");
             if (ret != NX_SUCCESS)
             {
+                tx_timer_deactivate(&DiagHeartbeatTimer);
                 printf("POST (TLS) start failed: 0x%02X after %lu ms\r\n", ret, elapsed_ms);
                 consecutive_connect_failures++;
                 if (consecutive_connect_failures >= DISCOVERY_RETRIGGER_FAILURES)
@@ -1089,6 +1099,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                                                                   HTTP_SEND_TIMEOUT_TICKS);
                 if (ret != NX_SUCCESS)
                 {
+                    tx_timer_deactivate(&DiagHeartbeatTimer);
                     printf("POST packet allocate failed: 0x%02X -- resetting connection for next round\r\n", ret);
                     /* Force a fresh connect+handshake next round rather
                      * than trust this same client object again -- see the
@@ -1121,6 +1132,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                                                         HTTP_SEND_TIMEOUT_TICKS);
                     if (ret != NX_SUCCESS)
                     {
+                        tx_timer_deactivate(&DiagHeartbeatTimer);
                         printf("POST send failed: 0x%02X -- resetting connection for next round\r\n", ret);
                         nx_packet_release(send_packet);
                         nx_web_http_client_delete(&HttpClient);
@@ -1175,6 +1187,13 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                             nx_packet_release(receive_packet);
                         }
 
+                        /* Both ways the loop above can end -- a clean
+                         * GET_DONE, or the idle/error break -- fall through
+                         * to here, so one deactivate call covers either.
+                         * (The allocate/put_packet failure branches further
+                         * up have their own, since those return before ever
+                         * reaching this point at all.) */
+                        tx_timer_deactivate(&DiagHeartbeatTimer);
                         HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
                     }
                 }
