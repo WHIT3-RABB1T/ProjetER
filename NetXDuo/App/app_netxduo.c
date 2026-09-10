@@ -813,16 +813,13 @@ static UINT Discover_ServerIP(VOID)
 }
 
 /* Periodic HTTPS POST client: every HTTP_POLL_PERIOD_MS milliseconds,
- * opens a fresh TLS connection to ServerHost:HTTP_SERVER_HTTPS_PORT (found
- * via Discover_ServerIP() at thread start, or re-found mid-session --
- * see that function and the DISCOVERY_* block in app_netxduo.h) and POSTs
- * one combined JSON reading of the whole onboard sensor suite
- * (see sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX, IIS2MDC, VEML3235, all
- * on I2C2) to HTTP_RESOURCE, prints the (decrypted) response body, and
- * tears the client back down -- one clean create/handshake/POST/delete
- * cycle per round, matching the lifecycle NetX Duo's own HTTP client POST
- * sample (netx_web_post_basic_test.c) uses: post_secure_start (runs the
- * TLS handshake via tls_setup_callback above, then sends headers +
+ * POSTs one combined JSON reading of the whole onboard sensor suite (see
+ * sensors.h/.c -- HTS221, LPS22HH, ISM330DHCX, IIS2MDC, VEML3235, all on
+ * I2C2) to ServerHost:HTTP_SERVER_HTTPS_PORT/HTTP_RESOURCE (found via
+ * Discover_ServerIP() at thread start, or re-found mid-session -- see
+ * that function and the DISCOVERY_* block in app_netxduo.h) and prints
+ * the (decrypted) response body: post_secure_start (runs the TLS
+ * handshake via tls_setup_callback above, then sends headers +
  * Content-Length over the now-encrypted connection) ->
  * request_packet_allocate -> nx_packet_data_append (fills the body) ->
  * put_packet (encrypts and sends it).
@@ -832,8 +829,31 @@ static UINT Discover_ServerIP(VOID)
  * what Sensors_Endpoints[] in sensors.c does under the hood), but a full
  * TLS handshake on this hardware costs ~500-650ms (RSA-2048, no crypto
  * offload) and doing one per category made a full sweep take 3.5-5s; one
- * combined POST needs only a single handshake, so this trades per-
- * resource routing for a much shorter, more attainable poll cadence. */
+ * combined POST needs only a single handshake per round.
+ *
+ * It also used to redo that one handshake on *every* round -- a fresh
+ * nx_web_http_client_create() + post_secure_start() + ... +
+ * nx_web_http_client_delete() cycle each time, deliberately mirroring
+ * NetX Duo's own HTTP client POST sample (netx_web_post_basic_test.c).
+ * That made every single round pay the full ~500-650ms RSA cost, which
+ * is the actual speed ceiling on how often this can send. Now
+ * nx_web_http_client_create() only runs once (http_client_ready below),
+ * and post_secure_start() is called again on that same, still-open
+ * client every round: since tools/http_server.py's responses now claim
+ * HTTP/1.1 (Handler.protocol_version there), NetX Duo's own
+ * _nx_web_http_client_secure_connect() notices the previous response
+ * said to keep the connection alive, checks the TCP socket is still
+ * NX_TCP_ESTABLISHED, and -- if so -- skips the TCP connect *and* the
+ * TLS handshake entirely, going straight to sending this round's
+ * request over the already-encrypted connection. If the connection
+ * *isn't* still alive (first round ever, or the peer closed it since),
+ * that same call transparently falls back to a full fresh connect +
+ * handshake, still using this one client object -- no special-casing
+ * needed here for that, it's already how the vendored library behaves
+ * (see _nx_web_http_client_connect/_nx_web_http_client_secure_connect in
+ * nx_web_http_client.c). The elapsed-time print below will show
+ * ~500-650ms only on whichever (now rare) rounds actually pay for a
+ * handshake, and a small fraction of that on every reused round. */
 static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 {
     UINT        ret;
@@ -856,6 +876,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     ULONG       elapsed_ms;
     ULONG       waited;
     UINT        consecutive_connect_failures = 0;
+    UINT        http_client_ready = NX_FALSE;
 
     TX_PARAMETER_NOT_USED(thread_input);
 
@@ -941,13 +962,27 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
          * exact same class of bug as the packet-pool-too-small issue this
          * file already documents for TLS (10 -> 32 packets) -- a value
          * sized for plain HTTP, never revisited when TLS was layered on
-         * top. 8192 is comfortably within AppPool's ~48KB capacity. */
-        ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
-        if (ret != NX_SUCCESS)
+         * top. 8192 is comfortably within AppPool's ~48KB capacity.
+         *
+         * Only actually runs once now (http_client_ready), not every
+         * round -- see the big comment above this function for why: the
+         * same HttpClient is reused round after round, and
+         * post_secure_start() below is what decides on its own whether
+         * that means skipping the handshake or redoing it. */
+        if (!http_client_ready)
         {
-            printf("HTTP client create failed: 0x%02X\r\n", ret);
+            ret = nx_web_http_client_create(&HttpClient, "HTTP Client", &IpInstance, &AppPool, 8192);
+            if (ret == NX_SUCCESS)
+            {
+                http_client_ready = NX_TRUE;
+            }
+            else
+            {
+                printf("HTTP client create failed: 0x%02X\r\n", ret);
+            }
         }
-        else
+
+        if (http_client_ready)
         {
             /* post_secure_start runs the TLS handshake (via tls_setup_callback
              * above) and then, over the now-encrypted connection, sends the
@@ -1001,11 +1036,25 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                      * mid-session (same hotspot-restart scenario as at
                      * boot, just now instead of then). Re-broadcast and
                      * pick up wherever it is now; server_ip_address is
-                     * rebuilt right after in case ServerAddress changed. */
-                    printf("Discovery: %u consecutive connect failures -- re-discovering server...\r\n",
-                           consecutive_connect_failures);
+                     * rebuilt right after in case ServerAddress changed.
+                     *
+                     * Also tear down and rebuild HttpClient itself here,
+                     * not just the address: with the connection normally
+                     * reused round after round now (see the big comment
+                     * above this function), reaching this branch at all
+                     * means something's stayed broken across several
+                     * rounds despite the vendored library's own
+                     * transparent reconnect-on-reuse-failure logic already
+                     * having every chance to recover it on its own -- a
+                     * full delete+recreate is a cheap, unconditional reset
+                     * of last resort precisely because that normal path
+                     * has already been tried and hasn't been enough. */
+                    printf("Discovery: %u consecutive connect failures -- re-discovering server "
+                           "and resetting the HTTP client...\r\n", consecutive_connect_failures);
                     Discover_ServerIP();
                     server_ip_address.nxd_ip_address.v4 = ServerAddress;
+                    nx_web_http_client_delete(&HttpClient);
+                    http_client_ready = NX_FALSE;
                     consecutive_connect_failures = 0;
                 }
             }
@@ -1077,9 +1126,11 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                     }
                 }
             }
-
-            nx_web_http_client_delete(&HttpClient);
-            print_pool_status("after client delete");
+            /* No unconditional nx_web_http_client_delete() here anymore --
+             * HttpClient stays alive and open for reuse into next round's
+             * post_secure_start() unless the discovery-retrigger branch
+             * above (or a future failure path) explicitly decided to tear
+             * it down. */
         }
 
         round++;

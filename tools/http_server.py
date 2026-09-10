@@ -2,8 +2,7 @@
 """
 http_server.py — minimal HTTPS server for the board's periodic HTTP client.
 
-The board (NetXDuo/App/app_netxduo.c, App_HTTP_Thread_Entry) opens a fresh
-TLS connection every HTTP_POLL_PERIOD_MS milliseconds and POSTs one
+The board (NetXDuo/App/app_netxduo.c, App_HTTP_Thread_Entry) POSTs one
 combined JSON reading of the whole onboard sensor suite (Core/Src/sensors.c,
 Sensors_ReadAllJSON() -- one key per category: temperature, humidity,
 pressure, accelerometer, gyroscope, magnetometer, light) to HTTP_RESOURCE
@@ -16,6 +15,15 @@ still sending one-object-per-resource, or the even older plain decimal
 counter, this used to send) -- either way it logs the request, enough to
 confirm the board is actually reaching this machine, now over an
 encrypted connection.
+
+As fast as the board can send it: one TCP+TLS connection is kept open
+and reused for every round (Handler.protocol_version = "HTTP/1.1" below,
+plus TCP_NODELAY on the accepted socket in HTTPSServer.get_request())
+instead of a fresh handshake per POST, since the RSA-2048 handshake
+(~500-650ms, no crypto offload on the board) was the actual limit on how
+often it could send -- see the big comment on App_HTTP_Thread_Entry in
+app_netxduo.c for the full story of how NetX Duo's own HTTP client
+notices and exploits this on the board side.
 
 GET / serves dashboard.html, a live browser dashboard with two tabs
 (sidebar, left) -- open https://<this machine's IP>:<port>/ in a browser
@@ -443,6 +451,24 @@ class _TLSConnection:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1, not the base class's default 1.0: this is what lets the
+    # board reuse one TCP+TLS connection for every POST /sensors round
+    # instead of paying a full RSA-2048 handshake (~500-650ms, the actual
+    # speed ceiling -- see App_HTTP_Thread_Entry in app_netxduo.c) every
+    # single time. NetX Duo's HTTP client (nx_web_http_client.c) already
+    # checks the response's HTTP version to decide whether to keep the
+    # connection open (see _nx_web_http_client_process_header_fields) and
+    # transparently skips its own TCP connect + TLS handshake on the next
+    # post_secure_start() call if the socket's still established
+    # (_nx_web_http_client_secure_connect) -- all of that only ever
+    # engages if this server actually claims HTTP/1.1 in its status line,
+    # which BaseHTTPRequestHandler only does when this class attribute
+    # says so. socketserver's own handle() loop (calling handle_one_request()
+    # repeatedly until self.close_connection) is what actually keeps
+    # reading further requests off the same socket -- nothing else here
+    # needs to change for that.
+    protocol_version = "HTTP/1.1"
+
     # BaseHTTPRequestHandler already logs to stderr via log_message; keep
     # that default (it includes client address and timestamp) and just
     # tack on which resource was requested.
@@ -709,6 +735,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             handshake_chunks = conn.chunks[:conn.handshake_chunk_count]
             app_chunks = conn.chunks[conn.handshake_chunk_count:]
+            # Reset the tail back to empty now that it's been captured into
+            # app_chunks above -- with the connection now HTTP/1.1
+            # keep-alive (see Handler.protocol_version) and reused across
+            # every round, conn.chunks would otherwise keep growing for as
+            # long as the connection stays open, and this "one request's
+            # ciphertext" would silently turn into "every request this
+            # connection has ever carried, concatenated together."
+            # handshake_chunk_count itself stays untouched -- the handshake
+            # only ever happens once, at connection setup.
+            conn.chunks[conn.handshake_chunk_count:] = []
             request_ciphertext = b"".join(d for direction, d, _ in app_chunks if direction == "c2s")
             response_ciphertext = b"".join(d for direction, d, _ in app_chunks if direction == "s2c")
             cipher_name, _, secret_bits = conn.cipher()
@@ -787,6 +823,16 @@ class HTTPSServer(socketserver.ThreadingMixIn, HTTPServer):
     def get_request(self):
         conn, addr = super().get_request()
         conn.settimeout(CONNECTION_TIMEOUT_SECONDS)
+        # Now that the board reuses this same connection for many small
+        # POST /sensors round trips instead of one-request-then-close (see
+        # Handler.protocol_version above), Nagle's algorithm bundling a
+        # request/response's small header+body writes with whatever comes
+        # next -- interacting with the peer's delayed-ACK timer -- is a
+        # real, measured tens-of-milliseconds tax on every single round
+        # that plain unbuffered small writes don't need to pay. This has
+        # to be set on the raw accepted socket before _TLSConnection wraps
+        # it below; TCP_NODELAY is orthogonal to TLS itself either way.
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
             # _TLSConnection, not ssl_context.wrap_socket(): same
             # handshake, same negotiated parameters, but keeps every raw
@@ -813,6 +859,30 @@ class HTTPSServer(socketserver.ThreadingMixIn, HTTPServer):
             print(f"[{time.strftime('%H:%M:%S')}] {addr[0]} -> TLS handshake failed or timed out: {e}", flush=True)
             conn.close()
             raise
+
+    def handle_error(self, request, client_address):
+        """Called by socketserver instead of its default (a full traceback
+        dumped to stderr) whenever a request handler raises anything
+        uncaught. With connections now kept alive across many rounds
+        (Handler.protocol_version = "HTTP/1.1", see that class), this
+        routinely fires from BaseHTTPRequestHandler's own
+        handle_one_request(): once one POST /sensors finishes, it loops
+        right back around waiting for the *next* request's start line, and
+        whenever the board actually goes away mid-wait instead of sending
+        one -- a fresh Discover_ServerIP() re-pointing it elsewhere, a
+        Wi-Fi drop, a reflash -- that read raises ConnectionError/OSError.
+        Same class of "just one dropped connection" do_POST's own
+        read-timeout handling above already prints a clean line for
+        instead of a traceback; this is that same treatment for the one
+        path that happens outside do_POST entirely, so it never went
+        through that handling. Anything else still gets the real
+        traceback -- that would be an actual bug worth seeing in full."""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, OSError):  # covers ConnectionError/TimeoutError too, both subclass it
+            print(f"[{time.strftime('%H:%M:%S')}] {client_address[0]} -> connection dropped ({exc}) -- closing",
+                  flush=True)
+        else:
+            super().handle_error(request, client_address)
 
 
 def main() -> None:

@@ -152,14 +152,24 @@ extern "C" {
 #define HTTP_RESOURCE            "/sensors"
 /* Sleep between poll rounds, in milliseconds (kept in ms, not whole
  * seconds, so it can be tuned finer than 1s increments). This is the gap
- * *after* the round's one handshake+POST finishes, not a bound on the
- * round itself -- the real per-round floor is however long that single
- * handshake takes (~500-650ms observed, RSA-2048 with no crypto offload,
- * not something this constant controls). Was a flat 2s; cut to 300ms to
- * get fresher readings out sooner -- still nonzero so the thread always
- * yields briefly between rounds rather than immediately hammering a new
- * connection. */
-#define HTTP_POLL_PERIOD_MS      300
+ * *after* the round's POST finishes, not a bound on the round itself.
+ *
+ * Used to be a much bigger deal than it looks: every round paid a full
+ * ~500-650ms RSA-2048 TLS handshake regardless of this constant (see the
+ * "Periodic HTTPS POST client" comment on App_HTTP_Thread_Entry below),
+ * so tuning this only ever adjusted the gap on top of that fixed floor.
+ * Now that the same connection is reused round after round (HTTP/1.1
+ * keep-alive -- same comment), that floor is gone for every round except
+ * the rare one that actually needs a fresh handshake: the real per-round
+ * cost is just AES-128-CBC/HMAC-SHA256 over a small JSON body plus
+ * however long the Wi-Fi round trip takes, both far under a millisecond
+ * to low tens of milliseconds. 1ms (not 0): tx_thread_sleep(0) is a
+ * documented no-op in ThreadX (_tx_thread_sleep() returns immediately
+ * without suspending at all for a 0-tick request), so this is the
+ * smallest value that still puts a real tick-boundary yield between
+ * rounds rather than one round's tx_web_http_* calls running back-to-back
+ * with literally nothing between them. */
+#define HTTP_POLL_PERIOD_MS      1
 
 /* The response-read loop in App_HTTP_Thread_Entry used to hand
  * nx_web_http_client_response_body_get() one flat 5-second wait_option
