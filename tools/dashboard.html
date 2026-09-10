@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Board Sensor Dashboard</title>
+<!-- Quaternion.js (rawify/Quaternion.js, MIT) -- see updateDemoOrientation()
+     below for why the Demo tab needs real quaternion math instead of
+     chaining CSS rotateX/rotateY/rotateZ: independent Euler rotations
+     don't correctly compose when tilt and turn happen at once (order-
+     dependent, gimbal-lock-prone), which is what made that tab visibly
+     not match the real board's motion. toMatrix4() below returns a flat
+     16-element array that plugs directly into CSS matrix3d(). -->
+<script src="https://cdn.jsdelivr.net/npm/quaternion@2.2.0/dist/quaternion.min.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -448,6 +456,13 @@
      flattened by the parent's perspective in some browsers. */
   .demo-gimbal {
     transform-style: preserve-3d;
+    /* Static "looking down at a tabletop" viewing angle -- separate from
+       the live sensor-driven transform, which is applied to .demo-board
+       itself below. Without this, the board's identity orientation
+       (perfectly flat, matching the real board resting flat on a desk)
+       would render as a flat card facing the viewer head-on instead of
+       looking like a board lying on a table in front of them. */
+    transform: rotateX(55deg) rotateZ(-18deg);
   }
   .demo-board {
     width: 260px;
@@ -1092,25 +1107,39 @@ function leaveCryptoTab() {
 // ---- Demo tab: the board's real accelerometer/gyroscope, live, as a
 // tilting/turning 3D rectangle -----------------------------------------
 //
-// Pitch/roll come straight from the accelerometer's gravity vector --
-// {"x","y","z"} in mg (milli-g), see Core/Src/sensors.c's read_accelerometer()
-// -- so they're absolute and never drift, just noisy/jumpy the more the
-// board is actually shaken. Yaw can't come from gravity at all (it points
-// the same way no matter how the board spins flat), so it's the
-// gyroscope's z-axis rotation *rate* ({"x","y","z"} in mdps, i.e.
-// millidegrees/second) integrated over real elapsed time each poll --
-// accurate turn-by-turn, but with no absolute reference it slowly wanders
-// the longer it runs, hence the recenter button.
+// Rebuilt on real quaternion math (Quaternion.js, loaded in <head> --
+// https://github.com/rawify/Quaternion.js) instead of chaining CSS
+// rotateX()/rotateY()/rotateZ(): three independent Euler rotations don't
+// correctly compose when tilt and turn happen at the same time -- the
+// result depends on the order they're applied in, and can gimbal-lock --
+// which is exactly why this visibly didn't match the real board's motion
+// before. A single orientation quaternion has no such ordering ambiguity.
 //
-// Polls /api/latest on its own dedicated, much faster timer (DEMO_POLL_MS)
-// while this tab is open, same start/stop-on-visibility pattern as the
-// crypto tab's pollCryptoSample -- separate from the main dashboard's
-// POLL_MS, which is tuned for numeric tiles refreshing smoothly, not a
-// live tilt animation that would look choppy at that rate.
+// Tilt comes straight from the accelerometer's gravity vector -- {"x","y","z"}
+// in mg, see Core/Src/sensors.c's read_accelerometer() -- absolute, never
+// drifts, recomputed fresh from scratch every reading via
+// Quaternion.fromVectors(): the shortest rotation that takes the board's
+// own rest "up" axis (REST_UP below) to wherever gravity currently says
+// up is. Yaw can't come from gravity at all (it points the same way no
+// matter how the board spins flat), so it's the gyroscope's rotation rate
+// *around that same axis* ({"x","y","z"} in mdps) integrated over real
+// elapsed time between readings -- accurate turn-by-turn, but with no
+// absolute reference it slowly wanders the longer it runs, hence the
+// recenter button. (Asked first whether to fuse in the magnetometer
+// instead for drift-free yaw -- answer was accelerometer+gyroscope only,
+// as originally asked.)
+//
+// REST_UP is the board's own local axis that reads ~+1000mg when it's
+// lying flat on a table -- confirmed against the real board to be X, not
+// Z as originally assumed. The accelerometer and gyroscope are the same
+// physical ISM330DHCX chip (one 6-axis part, not two separate ones), so
+// they share the same axis labeling: gyro.x is rotation rate around that
+// same up axis, not gyro.z.
+const REST_UP = [1, 0, 0];
 
 const DEMO_POLL_MS = 100;
 let demoPollTimer = null;
-let demoYawDeg = 0;
+let demoYawRad = 0;
 let demoLastReadingAt = null;  // updated_at_ms of the last reading actually integrated
 
 function enterDemoTab() {
@@ -1126,7 +1155,7 @@ function leaveDemoTab() {
 }
 
 document.getElementById("demo-recenter").addEventListener("click", () => {
-  demoYawDeg = 0;
+  demoYawRad = 0;
   document.getElementById("demo-yaw").textContent = "0.0°";
 });
 
@@ -1146,22 +1175,6 @@ function updateDemoOrientation(data) {
   const accel = reading.accelerometer;
   const gyro = reading.gyroscope;
 
-  if (accel && typeof accel.x === "number") {
-    // Board flat & level -> ax ~= +1000mg -- confirmed against the real
-    // board (this was originally written assuming Z was the vertical
-    // axis, which was backwards: the ISM330DHCX's X axis is the one
-    // that points up/down when the board sits flat on a table, not Z).
-    // ay ~= az ~= 0 in that position. atan2 against ax gives a clean
-    // 0-90° tilt angle straight out of the gravity vector's direction,
-    // no small-angle approximation needed.
-    const pitch = Math.atan2(-accel.z, Math.sqrt(accel.y * accel.y + accel.x * accel.x)) * 180 / Math.PI;
-    const roll = Math.atan2(accel.y, accel.x) * 180 / Math.PI;
-    document.getElementById("demo-pitch").textContent = pitch.toFixed(1) + "°";
-    document.getElementById("demo-roll").textContent = roll.toFixed(1) + "°";
-    document.getElementById("demo-board").style.transform =
-      `rotateY(${demoYawDeg}deg) rotateX(${-pitch}deg) rotateZ(${roll}deg)`;
-  }
-
   // /api/latest always re-returns the same last reading between board
   // updates -- integrating gyro against wall-clock polling time (rather
   // than against how much time the reading itself actually advanced by)
@@ -1172,17 +1185,43 @@ function updateDemoOrientation(data) {
   // reading is what advances yaw, by exactly the real time it covers --
   // polling faster or slower than the board sends doesn't change the
   // result, and a reading that stops updating correctly stops turning.
-  if (gyro && typeof gyro.z === "number" && data.updated_at_ms) {
+  if (gyro && typeof gyro.x === "number" && data.updated_at_ms) {
     if (demoLastReadingAt !== null && data.updated_at_ms > demoLastReadingAt) {
       const dtSec = (data.updated_at_ms - demoLastReadingAt) / 1000;
-      // Capped so a long gap (page was backgrounded, board was briefly
-      // offline) doesn't dump a huge chunk of stale rotation rate in
-      // all at once when it resumes.
-      demoYawDeg += (gyro.z / 1000) * Math.min(dtSec, 0.5);
-      document.getElementById("demo-yaw").textContent = (((demoYawDeg % 360) + 360) % 360).toFixed(1) + "°";
+      // mdps -> deg/s -> rad/s, times elapsed seconds -- capped so a long
+      // gap (page backgrounded, board briefly offline) doesn't dump a
+      // huge chunk of stale rotation in all at once when it resumes.
+      demoYawRad += (gyro.x / 1000) * (Math.PI / 180) * Math.min(dtSec, 0.5);
+      document.getElementById("demo-yaw").textContent =
+        (((demoYawRad * 180 / Math.PI) % 360 + 360) % 360).toFixed(1) + "°";
     }
     demoLastReadingAt = data.updated_at_ms;
   }
+
+  if (!accel || typeof accel.x !== "number") return;
+
+  const mag = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z) || 1;
+  const measuredUp = [accel.x / mag, accel.y / mag, accel.z / mag];
+  const qTilt = Quaternion.fromVectors(REST_UP, measuredUp);
+
+  // Rotate the whole tilted board around the fixed REST_UP axis by
+  // however much the gyro says it's spun -- qYaw.mul(qTilt) applies the
+  // tilt first, then the turn, as one combined 3D rotation instead of
+  // three separate CSS rotate*() calls (see the block comment above).
+  const qYaw = Quaternion.fromAxisAngle(REST_UP, demoYawRad);
+  const qCombined = qYaw.mul(qTilt);
+
+  document.getElementById("demo-board").style.transform =
+    "matrix3d(" + qCombined.toMatrix4().join(",") + ")";
+
+  // Pitch/roll readout: a cosmetic decomposition of qTilt alone (yaw
+  // doesn't affect gravity's direction, so this is the same absolute
+  // tilt regardless of qCombined) -- same atan2-against-REST_UP formula
+  // as before, kept only for the numeric display.
+  const pitch = Math.atan2(-accel.z, Math.sqrt(accel.y * accel.y + accel.x * accel.x)) * 180 / Math.PI;
+  const roll = Math.atan2(accel.y, accel.x) * 180 / Math.PI;
+  document.getElementById("demo-pitch").textContent = pitch.toFixed(1) + "°";
+  document.getElementById("demo-roll").textContent = roll.toFixed(1) + "°";
 }
 
 function pollCryptoSample() {
