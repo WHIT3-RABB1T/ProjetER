@@ -853,7 +853,24 @@ static UINT Discover_ServerIP(VOID)
  * (see _nx_web_http_client_connect/_nx_web_http_client_secure_connect in
  * nx_web_http_client.c). The elapsed-time print below will show
  * ~500-650ms only on whichever (now rare) rounds actually pay for a
- * handshake, and a small fraction of that on every reused round. */
+ * handshake, and a small fraction of that on every reused round.
+ *
+ * That reuse check only looks at TCP socket state, though -- a
+ * connection that's silently died since the last round (Wi-Fi packet
+ * loss ate the peer's close, or it just vanished) can still read back as
+ * NX_TCP_ESTABLISHED locally, so post_secure_start reuses it anyway, and
+ * whichever call actually tries to move data over it next
+ * (request_packet_allocate / put_packet / the response-read loop) is
+ * what discovers the truth. Observed on real hardware: one of those
+ * blocking that long used to blow WATCHDOG_STALE_TICKS and IWDG-reset
+ * the *entire board* (full Wi-Fi rejoin + DHCP) just to get back a TLS
+ * connection -- see HTTP_SEND_TIMEOUT_TICKS in app_netxduo.h and every
+ * nx_web_http_client_delete()/http_client_ready = NX_FALSE pairing
+ * below: each of those three steps now fails fast instead of blocking
+ * anywhere near that long, and explicitly forces next round to
+ * reconnect from scratch rather than trust this same client object
+ * again -- a software-only connection reset, several hundred ms at
+ * most, instead of a full board reset. */
 static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 {
     UINT        ret;
@@ -1062,23 +1079,52 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             {
                 consecutive_connect_failures = 0;
                 printf("TLS handshake + HTTP headers sent ok after %lu ms, sending body...\r\n", elapsed_ms);
+                /* HTTP_SEND_TIMEOUT_TICKS (2s), not the old blind 5s -- see
+                 * its comment in app_netxduo.h. This call only ever runs
+                 * right after post_secure_start just claimed the
+                 * connection is up, and it's a local pool operation with
+                 * no network wait really needed, so 2s is already
+                 * generous. */
                 ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
-                                                                  5 * NX_IP_PERIODIC_RATE);
+                                                                  HTTP_SEND_TIMEOUT_TICKS);
                 if (ret != NX_SUCCESS)
                 {
-                    printf("POST packet allocate failed: 0x%02X\r\n", ret);
+                    printf("POST packet allocate failed: 0x%02X -- resetting connection for next round\r\n", ret);
+                    /* Force a fresh connect+handshake next round rather
+                     * than trust this same client object again -- see the
+                     * HTTP_SEND_TIMEOUT_TICKS comment in app_netxduo.h for
+                     * why a stalled/failed step here is treated as reason
+                     * enough to rebuild, not just retry the same reused
+                     * connection. */
+                    nx_web_http_client_delete(&HttpClient);
+                    http_client_ready = NX_FALSE;
                 }
                 else
                 {
                     nx_packet_data_append(send_packet, body, body_len, &AppPool,
-                                          5 * NX_IP_PERIODIC_RATE);
+                                          HTTP_SEND_TIMEOUT_TICKS);
 
+                    /* Same HTTP_SEND_TIMEOUT_TICKS reasoning as above, and
+                     * this is the call that was actually observed on real
+                     * hardware blocking long enough (the old blind 5s) to
+                     * blow WATCHDOG_STALE_TICKS and IWDG-reset the whole
+                     * board -- rejoining Wi-Fi and redoing DHCP -- just to
+                     * recover from what a much smaller, software-only
+                     * connection reset would have fixed just as well: a
+                     * connection that's silently died since the last round
+                     * (peer never sent a clean close) still looks locally
+                     * NX_TCP_ESTABLISHED to post_secure_start's own reuse
+                     * check above, so it reuses it, and this is where that
+                     * false confidence actually gets tested against the
+                     * network. */
                     ret = nx_web_http_client_put_packet(&HttpClient, send_packet,
-                                                        5 * NX_IP_PERIODIC_RATE);
+                                                        HTTP_SEND_TIMEOUT_TICKS);
                     if (ret != NX_SUCCESS)
                     {
-                        printf("POST send failed: 0x%02X\r\n", ret);
+                        printf("POST send failed: 0x%02X -- resetting connection for next round\r\n", ret);
                         nx_packet_release(send_packet);
+                        nx_web_http_client_delete(&HttpClient);
+                        http_client_ready = NX_FALSE;
                     }
                     else
                     {
@@ -1107,9 +1153,16 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 
                             if (get_status != NX_SUCCESS && get_status != NX_WEB_HTTP_GET_DONE)
                             {
-                                printf("POST response read failed: 0x%02X%s\r\n", get_status,
+                                printf("POST response read failed: 0x%02X%s -- resetting connection for next round\r\n",
+                                       get_status,
                                        ConnectionIsIdle() ?
-                                       " (connection went idle -- resetting now instead of waiting out the timeout)" : "");
+                                       " (connection went idle)" : "");
+                                /* Same reasoning as the allocate/put_packet
+                                 * failure paths above: don't trust this
+                                 * client object again next round, force a
+                                 * fresh connect+handshake instead. */
+                                nx_web_http_client_delete(&HttpClient);
+                                http_client_ready = NX_FALSE;
                                 break;
                             }
 

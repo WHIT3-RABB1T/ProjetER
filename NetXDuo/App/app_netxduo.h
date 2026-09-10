@@ -188,6 +188,30 @@ extern "C" {
  * the same RESPONSE_TIMEOUT_TICKS (5s) total to respond as before. */
 #define RESPONSE_POLL_TICKS      (NX_IP_PERIODIC_RATE / 4)
 #define RESPONSE_TIMEOUT_TICKS   (5 * NX_IP_PERIODIC_RATE)
+
+/* Bounds nx_web_http_client_request_packet_allocate() and
+ * nx_web_http_client_put_packet() -- the two other blocking calls in a
+ * round, between post_secure_start (already bounded, see its own 8s
+ * comment) and the response-read loop above. These used to get 5s each,
+ * unbounded by anything like ConnectionIsIdle(): with the connection now
+ * reused round after round (HTTP/1.1 keep-alive) instead of freshly
+ * created every time, a connection that's silently gone dead since the
+ * last round -- looking locally like it's still NX_TCP_ESTABLISHED,
+ * peer never sent a clean close, just a black hole -- passes
+ * post_secure_start's own reuse check (it only looks at TCP state, not
+ * whether data actually still flows) and then put_packet blocks for the
+ * *entire* wait_option waiting for an ACK that's never coming. Observed
+ * on real hardware: that stall alone was enough to blow
+ * WATCHDOG_STALE_TICKS and IWDG-reset the *whole board* (rejoining
+ * Wi-Fi, redoing DHCP, the works) just to get back a TLS connection that
+ * a much smaller, software-only reset would have fixed just as well.
+ * Both calls only ever run against a connection post_secure_start just
+ * claimed was already established (allocate: a local pool operation, no
+ * network wait at all really needed; put_packet: sending a few hundred
+ * bytes over what should be a live link) -- 2s is generous for either
+ * genuinely succeeding, comfortably under WATCHDOG_STALE_TICKS with
+ * margin left for the rest of the round. */
+#define HTTP_SEND_TIMEOUT_TICKS  (2 * NX_IP_PERIODIC_RATE)
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
