@@ -51,6 +51,7 @@ static VOID diag_stack_error_notify(TX_THREAD *thread_ptr);
 static VOID watchdog_timer_entry(ULONG id);
 static VOID FormatIPAddress(ULONG address, CHAR *out);
 static UINT Discover_ServerIP(VOID);
+static UINT ConnectionIsIdle(VOID);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -460,6 +461,21 @@ static const CHAR *tls_client_state_name(UINT state)
     }
 }
 
+/* True once the TLS session backing HttpClient has fallen back to
+ * NX_SECURE_TLS_CLIENT_STATE_IDLE -- the state a session starts in, and
+ * the state NetX Secure resets it to whenever the session ends (peer
+ * closed the connection, a protocol alert, an internal error). Seeing
+ * this *after* post_secure_start already got the handshake all the way
+ * to HANDSHAKE_FINISHED means the connection this round was using has
+ * died out from under us -- checked in the response-read loop below
+ * between short polling slices, instead of only ever finding out the
+ * hard way once a whole RESPONSE_TIMEOUT_TICKS wait_option times out. */
+static UINT ConnectionIsIdle(VOID)
+{
+    return (HttpClient.nx_web_http_client_tls_session.nx_secure_tls_client_state
+            == NX_SECURE_TLS_CLIENT_STATE_IDLE) ? NX_TRUE : NX_FALSE;
+}
+
 /* Fires every 2s (see tx_timer_change() calls around post_secure_start in
  * App_HTTP_Thread_Entry) for as long as that call is blocked, so the
  * previously-silent stretch inside it -- TCP connect, TLS handshake, the
@@ -838,6 +854,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     UINT        body_len;
     ULONG       t0;
     ULONG       elapsed_ms;
+    ULONG       waited;
     UINT        consecutive_connect_failures = 0;
 
     TX_PARAMETER_NOT_USED(thread_input);
@@ -1016,16 +1033,34 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                     }
                     else
                     {
-                        /* Drain and print the response body, one packet at a time. */
+                        /* Drain and print the response body, one packet at a time.
+                         * See RESPONSE_POLL_TICKS/RESPONSE_TIMEOUT_TICKS in
+                         * app_netxduo.h for why this polls in short slices
+                         * (checking ConnectionIsIdle() between them) instead
+                         * of handing this call one flat 5-second wait_option
+                         * and just accepting however long a dead connection
+                         * took to finally time out. */
                         get_status = NX_SUCCESS;
+                        waited = 0;
                         while (get_status != NX_WEB_HTTP_GET_DONE)
                         {
                             get_status = nx_web_http_client_response_body_get(&HttpClient, &receive_packet,
-                                                                               5 * NX_IP_PERIODIC_RATE);
+                                                                               RESPONSE_POLL_TICKS);
+
+                            if (get_status == NX_NO_PACKET && !ConnectionIsIdle() && waited < RESPONSE_TIMEOUT_TICKS)
+                            {
+                                /* Nothing yet, but the connection's still
+                                 * alive and the old 5s budget isn't used up
+                                 * -- keep waiting, same as before. */
+                                waited += RESPONSE_POLL_TICKS;
+                                continue;
+                            }
 
                             if (get_status != NX_SUCCESS && get_status != NX_WEB_HTTP_GET_DONE)
                             {
-                                printf("POST response read failed: 0x%02X\r\n", get_status);
+                                printf("POST response read failed: 0x%02X%s\r\n", get_status,
+                                       ConnectionIsIdle() ?
+                                       " (connection went idle -- resetting now instead of waiting out the timeout)" : "");
                                 break;
                             }
 

@@ -160,6 +160,24 @@ extern "C" {
  * yields briefly between rounds rather than immediately hammering a new
  * connection. */
 #define HTTP_POLL_PERIOD_MS      300
+
+/* The response-read loop in App_HTTP_Thread_Entry used to hand
+ * nx_web_http_client_response_body_get() one flat 5-second wait_option
+ * and just accept however long a dead connection took to time out --
+ * if the server had already closed the connection (NetX Secure reports
+ * this by dropping the TLS session back to NX_SECURE_TLS_CLIENT_STATE_IDLE,
+ * see ConnectionIsIdle() in app_netxduo.c), nothing was ever coming, but
+ * the call still blocked the full 5s before giving up with NX_NO_PACKET
+ * and letting the round's own cleanup (nx_web_http_client_delete, next
+ * round's fresh connect) run -- observed as the board "going idle" for a
+ * flat 5s before it reconnected and worked again. Polling in
+ * RESPONSE_POLL_TICKS slices instead, checking ConnectionIsIdle()
+ * between them, means a truly dead connection gets noticed and the round
+ * abandoned within one slice instead of always waiting out the old
+ * budget blind; a connection that's merely slow, not dead, still gets
+ * the same RESPONSE_TIMEOUT_TICKS (5s) total to respond as before. */
+#define RESPONSE_POLL_TICKS      (NX_IP_PERIODIC_RATE / 4)
+#define RESPONSE_TIMEOUT_TICKS   (5 * NX_IP_PERIODIC_RATE)
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
