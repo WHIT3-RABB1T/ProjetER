@@ -122,35 +122,56 @@ static volatile ULONG DiagHeartbeatTicks;
  * recovered on their own even given the full ~10-12s before the reset
  * hit -- so unlike the TLS case, there's no evidence this one would ever
  * resolve if simply given more time to wait; the reset isn't cutting off
- * a recovery that was about to happen. */
+ * a recovery that was about to happen.
+ *
  * IWDG is the backstop that actually works regardless: WatchdogTimer
- * polls, every 2s, whether App_HTTP_Thread_Entry's poll loop has made
- * progress (WatchdogLastProgressTick, stamped at the top of that loop --
- * see below) within the last WATCHDOG_STALE_TICKS, and only refreshes
- * the hardware watchdog while that's true. A genuine wedge stops
- * progress being stamped, refreshes stop, and the IWDG hardware timeout
- * resets the board on its own -- independent of ThreadX's scheduler,
- * immune to AppHTTPThread being stuck in a blocking library call with no
- * yield point (or, as here, stuck on a mutex that ignores every
- * wait_option passed to it). Tuned tight (see the constants below) so a
- * wedge costs a several-second interruption instead of tens of seconds,
- * since that's the only lever available without a NetX Secure fix this
- * session can't safely make blind. Armed only once Wi-Fi/DHCP/sensor
+ * polls, every WATCHDOG_CHECK_TICKS, whether App_HTTP_Thread_Entry's poll
+ * loop has made progress (WatchdogLastProgressTick, stamped at the top of
+ * that loop -- see below) within the last WATCHDOG_STALE_TICKS, and only
+ * refreshes the hardware watchdog while that's true. A genuine wedge
+ * stops progress being stamped, refreshes stop, and the IWDG hardware
+ * timeout resets the board on its own -- independent of ThreadX's
+ * scheduler, immune to AppHTTPThread being stuck in a blocking library
+ * call with no yield point (or, as here, stuck on a mutex that ignores
+ * every wait_option passed to it). Armed only once Wi-Fi/DHCP/sensor
  * probing have already finished (right before App_HTTP_Thread_Entry's
  * main loop starts, see there) specifically so a slow-but-progressing
- * boot sequence can never itself trip a spurious reset. */
+ * boot sequence can never itself trip a spurious reset.
+ *
+ * Retuned after reading a real serial.log covering 50 of these resets
+ * back to back: 44 (88%) were this exact indefinite-hang bug, each one
+ * costing ~10-12s of a visibly frozen board before the old, looser timing
+ * (5s stale + 8s IWDG reload) finally reset it. Neither of those knobs
+ * was actually load-bearing against a false trip -- every real round
+ * observed completes in ~0.5-0.65s, nowhere near even a 3s budget -- so
+ * they're tightened below to cut that outage roughly in half to two
+ * thirds without adding any real risk of a spurious reset.
+ *
+ * The other 6 (12%) turned out to be a second, genuinely fixable bug of
+ * this file's own: the consecutive-failure branch below calls
+ * Discover_ServerIP() inline, which legitimately blocks up to
+ * DISCOVERY_MAX_ATTEMPTS * DISCOVERY_RETRY_INTERVAL_SEC (~30s) waiting
+ * for a reply -- and nothing stamped WatchdogLastProgressTick anywhere
+ * inside it, so a slow-but-succeeding rediscovery (the log shows one
+ * taking 7 attempts, ~14s, to find the server again after it changed IP)
+ * raced the watchdog and could get killed by a full board reset instead
+ * of the software-only recovery it was about to complete on its own.
+ * Fixed by stamping progress once per attempt in that loop too -- see
+ * Discover_ServerIP() below. */
 static IWDG_HandleTypeDef   hiwdg;
 static TX_TIMER              WatchdogTimer;
 static volatile ULONG        WatchdogLastProgressTick;
 /* LSI_VALUE (stm32u5xx_hal_conf.h) / IWDG_PRESCALER_256 = 32000/256 = 125 Hz
- * counter clock; 1000 counts / 125 Hz = 8.0s hardware timeout. Every
- * successful round actually observed on real hardware completes in
- * ~0.5-0.65s, so even worst-case (WATCHDOG_STALE_TICKS elapsing right
- * before a heartbeat tick, then the full IWDG reload on top) leaves a
- * wide margin against a spurious trip while still cutting a genuine
- * wedge's cost from ~34s down to roughly a third of that. */
-#define WATCHDOG_IWDG_RELOAD    1000U
-#define WATCHDOG_STALE_TICKS    (5 * TX_TIMER_TICKS_PER_SECOND)
+ * counter clock; 375 counts / 125 Hz = 3.0s hardware timeout. Worst case
+ * (a stall starting right after a refresh, so the last real refresh was
+ * almost a full WATCHDOG_CHECK_TICKS ago, plus the full IWDG reload on
+ * top) that's ~1s + ~3s = ~4s from the moment something actually wedges
+ * to the board resetting -- down from ~10-12s -- while every real round
+ * (~0.5-0.65s) and every real Discover_ServerIP() attempt (2s, now fed to
+ * the watchdog directly, see above) still clear it with room to spare. */
+#define WATCHDOG_IWDG_RELOAD    375U
+#define WATCHDOG_CHECK_TICKS    (1 * TX_TIMER_TICKS_PER_SECOND)
+#define WATCHDOG_STALE_TICKS    (3 * TX_TIMER_TICKS_PER_SECOND)
 
 ULONG IpAddress;
 ULONG NetMask;
@@ -234,7 +255,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v8-poll-period-50ms ===\r\n");
+  printf("=== BUILD_MARKER: diag-v9-tight-watchdog+discovery-progress ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* See tx_user.h (TX_ENABLE_STACK_CHECKING) and diag_stack_error_notify
@@ -533,12 +554,13 @@ static VOID diag_heartbeat_entry(ULONG id)
            tls_client_state_name(HttpClient.nx_web_http_client_tls_session.nx_secure_tls_client_state));
 }
 
-/* Fires every 2s, for the entire lifetime of the app once armed -- see the
- * watchdog comment above WatchdogLastProgressTick's declaration. Runs in
- * ThreadX's own system-timer thread context, so it keeps polling even
- * while AppHTTPThread itself is completely wedged inside a blocking NetX
- * call -- that's the whole point: it can only refresh the hardware
- * watchdog while genuine forward progress is still being made. */
+/* Fires every WATCHDOG_CHECK_TICKS, for the entire lifetime of the app
+ * once armed -- see the watchdog comment above WatchdogLastProgressTick's
+ * declaration. Runs in ThreadX's own system-timer thread context, so it
+ * keeps polling even while AppHTTPThread itself is completely wedged
+ * inside a blocking NetX call -- that's the whole point: it can only
+ * refresh the hardware watchdog while genuine forward progress is still
+ * being made. */
 static VOID watchdog_timer_entry(ULONG id)
 {
     TX_PARAMETER_NOT_USED(id);
@@ -548,7 +570,7 @@ static VOID watchdog_timer_entry(ULONG id)
         HAL_IWDG_Refresh(&hiwdg);
     }
     /* else: no progress in over WATCHDOG_STALE_TICKS -- stop refreshing
-     * and let the ~8s IWDG hardware timeout reset the board. */
+     * and let the ~3s IWDG hardware timeout reset the board. */
 }
 
 /**
@@ -765,6 +787,19 @@ static UINT Discover_ServerIP(VOID)
 
     for (attempt = 0; attempt < DISCOVERY_MAX_ATTEMPTS && found == NX_FALSE; attempt++)
     {
+        /* Feed the watchdog once per attempt: this loop can legitimately
+         * run for DISCOVERY_MAX_ATTEMPTS * DISCOVERY_RETRY_INTERVAL_SEC
+         * (~30s) when called from App_HTTP_Thread_Entry's consecutive-
+         * failure branch mid-round, and nothing else in that call path
+         * stamps WatchdogLastProgressTick while it's in here -- see the
+         * watchdog comment above WatchdogLastProgressTick's declaration
+         * for the real serial.log evidence this was actually happening
+         * (a slow-but-succeeding rediscovery getting killed by the
+         * watchdog instead of the software-only recovery it was about to
+         * complete on its own). Harmless when called from thread startup
+         * too, before the watchdog is even armed. */
+        WatchdogLastProgressTick = tx_time_get();
+
         ret = nx_packet_allocate(&AppPool, &send_packet, NX_IPv4_UDP_PACKET, NX_NO_WAIT);
         if (ret != NX_SUCCESS)
         {
@@ -952,7 +987,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
 #if defined(DBGMCU_APB1FZR1_DBG_IWDG_STOP)
     /* Halt the IWDG countdown while a debugger has the core stopped at a
      * breakpoint -- without this, pausing in the debugger for longer than
-     * the ~8s timeout resets the board out from under the debug session,
+     * the ~3-4s timeout resets the board out from under the debug session,
      * which has nothing to do with a real stall. */
     __HAL_DBGMCU_FREEZE_IWDG();
 #endif
@@ -967,8 +1002,8 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
     else
     {
         tx_timer_create(&WatchdogTimer, "Watchdog Timer", watchdog_timer_entry, 0,
-                        2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND, TX_AUTO_ACTIVATE);
-        printf("Watchdog: armed (~8s IWDG timeout, resets if a poll round stalls that long)\r\n");
+                        WATCHDOG_CHECK_TICKS, WATCHDOG_CHECK_TICKS, TX_AUTO_ACTIVATE);
+        printf("Watchdog: armed (~3-4s worst case to reset if a poll round stalls that long)\r\n");
     }
 
     while (1)
