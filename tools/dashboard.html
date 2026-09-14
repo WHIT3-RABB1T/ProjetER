@@ -685,12 +685,12 @@
   .game-speedrun-result button { flex: none; margin-top: 0; }
   .game-speedrun-live[hidden], .game-speedrun-result[hidden] { display: none; }
 
-  /* ---- Apple Catch: full-screen game -------------------------------
+  /* ---- Shared by any full-screen game tab (Apple Catch, Race) ------
      .tab-panel already handles show/hide (display:none / block) via
      the base rule above -- this only adds the "cover literally the
      whole viewport, including the sidebar" behavior on top of that,
      so it only ever matters while the panel is already display:block. */
-  .tab-panel.apples-fullscreen {
+  .tab-panel.fullscreen-tab {
     position: fixed;
     inset: 0;
     z-index: 1000;
@@ -698,7 +698,7 @@
     overflow: hidden;
   }
   #apples-canvas { position: absolute; inset: 0; display: block; }
-  .apples-exit-btn {
+  .fullscreen-exit-btn {
     position: absolute;
     top: 16px; right: 16px;
     z-index: 10;
@@ -711,8 +711,8 @@
     line-height: 1;
     cursor: pointer;
   }
-  .apples-exit-btn:hover { background: rgba(232,93,93,0.28); border-color: rgba(232,93,93,0.45); }
-  .apples-hud {
+  .fullscreen-exit-btn:hover { background: rgba(232,93,93,0.28); border-color: rgba(232,93,93,0.45); }
+  .fullscreen-hud {
     position: absolute;
     top: 16px; left: 16px;
     z-index: 10;
@@ -725,9 +725,9 @@
     font-size: 15px;
     font-weight: 600;
   }
-  .apples-hud[hidden] { display: none; }
-  .apples-hud-item b { font-family: var(--mono); color: var(--accent); }
-  .apples-overlay {
+  .fullscreen-hud[hidden] { display: none; }
+  .fullscreen-hud-item b { font-family: var(--mono); color: var(--accent); }
+  .fullscreen-overlay {
     position: absolute;
     inset: 0;
     z-index: 5;
@@ -740,10 +740,10 @@
     padding: 20px;
     background: rgba(15,17,21,0.55);
   }
-  .apples-overlay[hidden] { display: none; }
-  .apples-overlay h1 { margin: 0; font-size: 34px; }
-  .apples-overlay p { max-width: 480px; color: var(--text-dim); margin: 0; line-height: 1.5; }
-  .apples-big-btn {
+  .fullscreen-overlay[hidden] { display: none; }
+  .fullscreen-overlay h1 { margin: 0; font-size: 34px; }
+  .fullscreen-overlay p { max-width: 480px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+  .fullscreen-big-btn {
     padding: 16px 38px;
     font-size: 18px;
     font-weight: 700;
@@ -754,8 +754,8 @@
     color: var(--text);
     cursor: pointer;
   }
-  .apples-big-btn:hover { background: linear-gradient(180deg, rgba(77,163,255,0.45), rgba(77,163,255,0.24)); }
-  .apples-best { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+  .fullscreen-big-btn:hover { background: linear-gradient(180deg, rgba(77,163,255,0.45), rgba(77,163,255,0.24)); }
+  .fullscreen-best { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -767,6 +767,7 @@
   <button class="tab-btn" data-tab="demo"><span class="icon">🧭</span>Demo</button>
   <button class="tab-btn" data-tab="game"><span class="icon">🎮</span>Game</button>
   <button class="tab-btn" data-tab="apples"><span class="icon">🍎</span>Catch</button>
+  <button class="tab-btn" data-tab="race"><span class="icon">🏎️</span>Race</button>
 </nav>
 
 <main id="content">
@@ -970,17 +971,17 @@
     </div>
   </section>
 
-  <section id="tab-apples" class="tab-panel apples-fullscreen">
-    <button id="apples-exit" class="apples-exit-btn" title="Exit (Esc)">✕</button>
+  <section id="tab-apples" class="tab-panel fullscreen-tab">
+    <button id="apples-exit" class="fullscreen-exit-btn" title="Exit (Esc)">✕</button>
 
-    <div class="apples-hud" id="apples-hud" hidden>
-      <span class="apples-hud-item">Score: <b id="apples-score">0</b></span>
-      <span class="apples-hud-item">Lives: <span id="apples-lives">❤❤❤</span></span>
+    <div class="fullscreen-hud" id="apples-hud" hidden>
+      <span class="fullscreen-hud-item">Score: <b id="apples-score">0</b></span>
+      <span class="fullscreen-hud-item">Lives: <span id="apples-lives">❤❤❤</span></span>
     </div>
 
     <canvas id="apples-canvas"></canvas>
 
-    <div class="apples-overlay" id="apples-start-overlay">
+    <div class="fullscreen-overlay" id="apples-start-overlay">
       <h1>🍎 Apple Catch</h1>
       <p>
         Rock the board side to side (rotating it around its X axis) to
@@ -990,15 +991,40 @@
         side -- press the board's button to jump over it, or it's instant
         game over.
       </p>
-      <button id="apples-start-btn" class="apples-big-btn">▶ Start</button>
-      <p class="apples-best" id="apples-best-display">Best: —</p>
+      <button id="apples-start-btn" class="fullscreen-big-btn">▶ Start</button>
+      <p class="fullscreen-best" id="apples-best-display">Best: —</p>
     </div>
 
-    <div class="apples-overlay" id="apples-gameover-overlay" hidden>
+    <div class="fullscreen-overlay" id="apples-gameover-overlay" hidden>
       <h1>🍏 Game Over</h1>
       <p id="apples-final-score">You caught 0 apples.</p>
-      <button id="apples-restart-btn" class="apples-big-btn">↻ Play Again</button>
-      <p class="apples-best" id="apples-best-display-2">Best: —</p>
+      <button id="apples-restart-btn" class="fullscreen-big-btn">↻ Play Again</button>
+      <p class="fullscreen-best" id="apples-best-display-2">Best: —</p>
+    </div>
+  </section>
+
+  <section id="tab-race" class="tab-panel fullscreen-tab">
+    <button id="race-exit" class="fullscreen-exit-btn" title="Exit (Esc)">✕</button>
+
+    <div class="fullscreen-hud" id="race-hud" hidden>
+      <span class="fullscreen-hud-item">Speed: <b id="race-speed">0</b> km/h</span>
+      <span class="fullscreen-hud-item">Distance: <b id="race-distance">0</b> m</span>
+      <span class="fullscreen-hud-item">Best: <b id="race-best-live">—</b> m</span>
+    </div>
+
+    <canvas id="race-canvas"></canvas>
+
+    <div class="fullscreen-overlay" id="race-start-overlay">
+      <h1>🏎️ Race</h1>
+      <p>
+        Turn the board flat like a steering wheel (rotating it around its
+        Z axis) to steer -- the car drives itself forward, your job is
+        just to keep it on the road through the curves. Drifting onto the
+        grass slows you down. Press the board's button any time to
+        restart the drive.
+      </p>
+      <button id="race-start-btn" class="fullscreen-big-btn">▶ Start Driving</button>
+      <p class="fullscreen-best" id="race-best-display">Best distance: —</p>
     </div>
   </section>
 
@@ -1367,6 +1393,8 @@ function activateTab(tabName) {
   else leaveGameTab();
   if (tabName === "apples") enterApplesTab();
   else leaveApplesTab();
+  if (tabName === "race") enterRaceTab();
+  else leaveRaceTab();
 }
 
 document.getElementById("sidebar").addEventListener("click", (e) => {
@@ -2556,6 +2584,349 @@ applesRestartBtn.addEventListener("click", startApplesGame);
 
 resizeApplesCanvas();
 renderApples();
+
+// ---------------------------------------------------------------------
+// Race: full-screen pseudo-3D driving POC. Steering is rate control from
+// gyroscope Z -- turning the board flat, like a real steering wheel,
+// spins it around its vertical/up axis, exactly the same physical motion
+// as a wheel. The track uses the classic "segment" technique for a
+// curving pseudo-3D road (see e.g. Jake Gordon's well-known "3 domains
+// of pseudo-3D" writeup for the general approach this is built on): a
+// fixed list of road segments, each with a curve value, projected from
+// world space into screen space every frame with a simple perspective
+// divide, accumulating each segment's curve into a horizontal offset so
+// the road visibly bends. The car sprite itself never moves on screen --
+// exactly like Out Run/Rad Racer, steering and curves move the world
+// under a screen-fixed car, not the other way around.
+// ---------------------------------------------------------------------
+const RACE_SEGMENT_LENGTH = 200;   // world units per road segment
+const RACE_ROAD_WIDTH = 2000;      // half-width of the paved road, world units
+const RACE_CAMERA_HEIGHT = 1000;
+const RACE_FIELD_OF_VIEW = 100;    // degrees
+const RACE_CAMERA_DEPTH = 1 / Math.tan((RACE_FIELD_OF_VIEW / 2) * Math.PI / 180);
+const RACE_DRAW_DISTANCE = 300;    // segments rendered ahead each frame
+
+// "1 segment per frame at 60fps" at max speed is the standard reference
+// tuning for this segment length -- fast, but still smooth to render.
+const RACE_MAX_SPEED = RACE_SEGMENT_LENGTH * 60;
+const RACE_ACCEL = RACE_MAX_SPEED / 5;             // 0 -> max in ~5s
+const RACE_OFFROAD_MAX_SPEED = RACE_MAX_SPEED / 4; // capped while off the paved road
+const RACE_OFFROAD_BRAKE = RACE_MAX_SPEED / 2;     // decel pulling speed down to the off-road cap
+const RACE_CENTRIFUGAL = 0.3;      // how hard a curve pulls the car toward its outside edge, scaled by speed -- verified in race_math_check.js that curve>0 (right bend) drifts racePlayerX negative (outward), matching real driving physics
+
+// Friendly HUD numbers rather than raw world units: tuned so max speed
+// reads as ~220 km/h, with "meters" of distance using the same
+// units-per-second conversion so the two numbers stay consistent with
+// each other (i.e. dividing distance by elapsed time roughly gives back
+// the speed reading, modulo accel/off-road time).
+const RACE_KMH_SCALE = 220 / RACE_MAX_SPEED;
+const RACE_METERS_SCALE = RACE_KMH_SCALE / 3.6;
+
+const RACE_STEER_INVERT = false;   // flip if a first real-hardware run turns the wrong way -- same untested-sign caveat as Apple Catch's gyro gain, no real board available to confirm which way gyro.z's sign actually corresponds to "turned the wheel right"
+const RACE_STEER_GAIN = 0.03;      // road-half-widths/s of steering rate per deg/s of gyro.z -- untested on real hardware, tune after a first real run
+const RACE_STEER_DEADZONE = 2;     // deg/s
+const RACE_STEER_SMOOTHING = 8;    // same exponential low-pass approach as Apple Catch's gyro handling
+
+const RACE_PLAYER_X_MAX = 2.2;     // lateral clamp, in road-half-widths
+
+let raceSegments = [];
+let raceTrackLength = 0;
+let raceActive = false;
+let racePlayerZ = 0;               // distance traveled along the (looping) track, world units
+let racePlayerX = 0;                // lateral offset, in road-half-widths (0 = center, +-1 = paved edge)
+let raceSpeed = 0;                  // world units/s
+let raceTotalWorldDistance = 0;     // world units, never resets mid-run, feeds the "meters" HUD
+let raceDistance = 0;               // meters, for the HUD/best
+let raceBest = null;                // meters
+let raceSmoothedGyroZ = 0;
+let raceLatestGyroZ = 0;
+let raceLatestButtonPressed = 0;
+let raceLastButtonPressed = 0;
+let racePollTimer = null;
+let raceRafId = null;
+let raceLastFrameTime = null;
+
+try {
+  const saved = localStorage.getItem("raceBestDistance");
+  if (saved !== null) raceBest = parseFloat(saved);
+} catch (e) {}
+
+const raceCanvas = document.getElementById("race-canvas");
+const raceCtx = raceCanvas.getContext("2d");
+const raceHud = document.getElementById("race-hud");
+const raceSpeedEl = document.getElementById("race-speed");
+const raceDistanceEl = document.getElementById("race-distance");
+const raceBestLiveEl = document.getElementById("race-best-live");
+const raceStartOverlay = document.getElementById("race-start-overlay");
+const raceStartBtn = document.getElementById("race-start-btn");
+const raceBestDisplayEl = document.getElementById("race-best-display");
+
+function updateRaceBestDisplay() {
+  raceBestDisplayEl.textContent = "Best distance: " + (raceBest !== null ? Math.round(raceBest) + " m" : "—");
+}
+updateRaceBestDisplay();
+
+// Builds the (looping) track once: a fixed sequence of straights and
+// curves, not randomized -- a POC track is easier to reason about (and
+// to have looked at at least once) than a fresh random one every load.
+// Each curve section eases its curvature in and back out across its own
+// length (0 -> full -> 0) rather than snapping straight to a target
+// value, so a corner reads as a smooth bend instead of a sudden kink.
+function raceAddSection(curve, length) {
+  for (let i = 0; i < length; i++) {
+    const t = i / length;
+    const ease = t < 0.5 ? (t * 2) : ((1 - t) * 2);
+    raceSegments.push({ curve: curve * ease });
+  }
+}
+
+function raceBuildTrack() {
+  raceSegments = [];
+  raceAddSection(0, 20);      // starting straight
+  raceAddSection(3, 40);      // gentle right
+  raceAddSection(0, 20);
+  raceAddSection(-4.5, 50);   // sharper left
+  raceAddSection(0, 15);
+  raceAddSection(6, 30);      // sharp right
+  raceAddSection(0, 25);
+  raceAddSection(-2.5, 60);   // long gentle left
+  raceAddSection(0, 20);
+  raceAddSection(2, 25);
+  raceAddSection(-2, 25);
+  raceAddSection(0, 30);
+  raceTrackLength = raceSegments.length * RACE_SEGMENT_LENGTH;
+}
+raceBuildTrack();
+
+function resizeRaceCanvas() {
+  raceCanvas.width = window.innerWidth;
+  raceCanvas.height = window.innerHeight;
+}
+
+function updateRaceHud() {
+  raceSpeedEl.textContent = Math.round(raceSpeed * RACE_KMH_SCALE);
+  raceDistanceEl.textContent = Math.round(raceDistance);
+  raceBestLiveEl.textContent = Math.round(Math.max(raceDistance, raceBest !== null ? raceBest : 0));
+}
+
+function startRaceDrive() {
+  raceActive = true;
+  racePlayerZ = 0;
+  racePlayerX = 0;
+  raceSpeed = 0;
+  raceTotalWorldDistance = 0;
+  raceDistance = 0;
+  raceSmoothedGyroZ = 0;
+  raceLastButtonPressed = raceLatestButtonPressed;  // don't let a button already held from a prior tab trigger an instant restart-loop
+  raceLastFrameTime = null;
+  raceStartOverlay.hidden = true;
+  raceHud.hidden = false;
+  updateRaceHud();
+}
+
+function stepRace(dt) {
+  if (!raceActive) return;
+
+  // Steering: same smoothing/deadzone treatment as Apple Catch's gyro
+  // handling, so a fresh sensor reading landing only every ~50ms doesn't
+  // yank the wheel between polls, and small sensor noise near zero
+  // doesn't make the car drift under a perfectly level board.
+  let gzRaw = raceLatestGyroZ / 1000;
+  if (RACE_STEER_INVERT) gzRaw = -gzRaw;
+  if (Math.abs(gzRaw) < RACE_STEER_DEADZONE) gzRaw = 0;
+  raceSmoothedGyroZ += (gzRaw - raceSmoothedGyroZ) * Math.min(1, dt * RACE_STEER_SMOOTHING);
+
+  racePlayerX += raceSmoothedGyroZ * RACE_STEER_GAIN * dt;
+
+  // Hardware button: restart the drive on the rising edge only. Updating
+  // raceLastButtonPressed unconditionally (before the early return) is
+  // what keeps this a single-shot edge trigger instead of re-firing
+  // every frame for as long as the button stays physically held down.
+  const buttonEdge = (raceLatestButtonPressed === 1 && raceLastButtonPressed === 0);
+  raceLastButtonPressed = raceLatestButtonPressed;
+  if (buttonEdge) {
+    startRaceDrive();
+    return;
+  }
+
+  const onRoad = Math.abs(racePlayerX) <= 1;
+  const targetSpeed = onRoad ? RACE_MAX_SPEED : RACE_OFFROAD_MAX_SPEED;
+  if (raceSpeed < targetSpeed) {
+    raceSpeed = Math.min(targetSpeed, raceSpeed + RACE_ACCEL * dt);
+  } else {
+    raceSpeed = Math.max(targetSpeed, raceSpeed - RACE_OFFROAD_BRAKE * dt);
+  }
+
+  // Centrifugal drift: a curve pulls the car toward its outside edge,
+  // harder the faster you're going, so a corner taken flat-out genuinely
+  // needs active counter-steering instead of just aiming straight ahead.
+  const currentIdx = Math.floor(racePlayerZ / RACE_SEGMENT_LENGTH) % raceSegments.length;
+  const speedPercent = raceSpeed / RACE_MAX_SPEED;
+  racePlayerX -= raceSegments[currentIdx].curve * speedPercent * RACE_CENTRIFUGAL * dt;
+  racePlayerX = Math.max(-RACE_PLAYER_X_MAX, Math.min(RACE_PLAYER_X_MAX, racePlayerX));
+
+  racePlayerZ += raceSpeed * dt;
+  if (racePlayerZ >= raceTrackLength) racePlayerZ -= raceTrackLength;  // loop the track
+
+  raceTotalWorldDistance += raceSpeed * dt;
+  raceDistance = raceTotalWorldDistance * RACE_METERS_SCALE;
+  if (raceBest === null || raceDistance > raceBest) {
+    raceBest = raceDistance;
+    try { localStorage.setItem("raceBestDistance", String(raceBest)); } catch (e) {}
+  }
+
+  updateRaceHud();
+}
+
+function raceProjectPoint(relX, relZ, w, h) {
+  const scale = RACE_CAMERA_DEPTH / relZ;
+  return {
+    x: (w / 2) + scale * relX * w / 2,
+    y: (h / 2) + scale * RACE_CAMERA_HEIGHT * h / 2,
+    w: scale * RACE_ROAD_WIDTH * w / 2,
+  };
+}
+
+function raceDrawTrapezoid(color, cx1, y1, width1, cx2, y2, width2) {
+  raceCtx.fillStyle = color;
+  raceCtx.beginPath();
+  raceCtx.moveTo(cx1 - width1 / 2, y1);
+  raceCtx.lineTo(cx1 + width1 / 2, y1);
+  raceCtx.lineTo(cx2 + width2 / 2, y2);
+  raceCtx.lineTo(cx2 - width2 / 2, y2);
+  raceCtx.closePath();
+  raceCtx.fill();
+}
+
+function renderRace() {
+  const w = raceCanvas.width, h = raceCanvas.height;
+
+  const sky = raceCtx.createLinearGradient(0, 0, 0, h * 0.5);
+  sky.addColorStop(0, "#6ec6ff");
+  sky.addColorStop(1, "#bfe8ff");
+  raceCtx.fillStyle = sky;
+  raceCtx.fillRect(0, 0, w, h);
+  raceCtx.fillStyle = "#3a9b46";
+  raceCtx.fillRect(0, h * 0.5, w, h * 0.5);
+
+  const N = raceSegments.length;
+  const baseIndex = Math.floor(racePlayerZ / RACE_SEGMENT_LENGTH) % N;
+  const basePercent = (racePlayerZ % RACE_SEGMENT_LENGTH) / RACE_SEGMENT_LENGTH;
+
+  let x = 0;
+  let dx = -(raceSegments[baseIndex].curve * basePercent);
+  let maxY = h;
+
+  // Rendered back-to-front would be simpler to reason about but this
+  // (near-to-far, tracking maxY as a clip line) is what lets each strip
+  // just overpaint everything above it without a separate depth buffer --
+  // verified in race_math_check.js that screen.w shrinks monotonically
+  // with distance on a straight road, so "further" reliably means
+  // "smaller and higher on screen" here, not something render order
+  // could get backwards.
+  for (let n = 0; n < RACE_DRAW_DISTANCE; n++) {
+    const idx = (baseIndex + n) % N;
+    const segment = raceSegments[idx];
+    const looped = idx < baseIndex;
+    const zOffset = looped ? raceTrackLength : 0;
+
+    const z1 = idx * RACE_SEGMENT_LENGTH + zOffset;
+    const z2 = (idx + 1) * RACE_SEGMENT_LENGTH + zOffset;
+    const relZ1 = z1 - racePlayerZ;
+    const relZ2 = z2 - racePlayerZ;
+
+    const relX1 = x - racePlayerX * RACE_ROAD_WIDTH;
+    const relX2 = (x + dx) - racePlayerX * RACE_ROAD_WIDTH;
+    x = x + dx;
+    dx = dx + segment.curve;
+
+    if (relZ1 <= 1) continue;
+
+    const p1 = raceProjectPoint(relX1, relZ1, w, h);
+    const p2 = raceProjectPoint(relX2, relZ2, w, h);
+
+    if (p2.y >= maxY) continue;
+
+    const stripe = idx % 4 < 2;
+    raceDrawTrapezoid(stripe ? "#3a9b46" : "#358f41", 0, p1.y, w * 3, 0, p2.y, w * 3);
+    const rumbleColor = stripe ? "#c94b4b" : "#e8e8e8";
+    raceDrawTrapezoid(rumbleColor, p1.x, p1.y, p1.w * 2 * 1.15, p2.x, p2.y, p2.w * 2 * 1.15);
+    raceDrawTrapezoid("#4a4a52", p1.x, p1.y, p1.w * 2, p2.x, p2.y, p2.w * 2);
+    // Center line, only wide enough to read as a stripe rather than a slab.
+    raceDrawTrapezoid(stripe ? "#e8e8e8" : "#4a4a52", p1.x, p1.y, p1.w * 0.05, p2.x, p2.y, p2.w * 0.05);
+
+    maxY = p2.y;
+  }
+
+  raceCtx.font = "64px sans-serif";
+  raceCtx.textAlign = "center";
+  raceCtx.textBaseline = "middle";
+  raceCtx.fillText("🏎️", w / 2, h - 70);
+}
+
+function raceLoop(ts) {
+  if (raceLastFrameTime === null) raceLastFrameTime = ts;
+  const dt = Math.min((ts - raceLastFrameTime) / 1000, 0.05);
+  raceLastFrameTime = ts;
+
+  stepRace(dt);
+  renderRace();
+
+  raceRafId = requestAnimationFrame(raceLoop);
+}
+
+function pollRaceSensors() {
+  fetch("/api/latest", { cache: "no-store" })
+    .then(r => r.json())
+    .then(data => {
+      const reading = data.reading;
+      if (!reading) return;
+      if (reading.gyroscope && typeof reading.gyroscope.z === "number") {
+        raceLatestGyroZ = reading.gyroscope.z;
+      }
+      if (reading.button && typeof reading.button.pressed === "number") {
+        raceLatestButtonPressed = reading.button.pressed;
+      }
+    })
+    .catch(e => {
+      // Transient fetch failure -- next poll (50ms away) tries again.
+    });
+}
+
+function enterRaceTab() {
+  resizeRaceCanvas();
+  raceLastFrameTime = null;
+  window.addEventListener("resize", resizeRaceCanvas);
+  clearInterval(racePollTimer);
+  racePollTimer = setInterval(pollRaceSensors, 50);
+  pollRaceSensors();
+  if (raceRafId === null) raceRafId = requestAnimationFrame(raceLoop);
+}
+
+function leaveRaceTab() {
+  window.removeEventListener("resize", resizeRaceCanvas);
+  clearInterval(racePollTimer);
+  racePollTimer = null;
+  if (raceRafId !== null) {
+    cancelAnimationFrame(raceRafId);
+    raceRafId = null;
+  }
+}
+
+function exitRaceTab() {
+  activateTab("dashboard");
+}
+
+document.getElementById("race-exit").addEventListener("click", exitRaceTab);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("tab-race").classList.contains("active")) {
+    exitRaceTab();
+  }
+});
+raceStartBtn.addEventListener("click", startRaceDrive);
+
+resizeRaceCanvas();
+renderRace();
 
 function pollCryptoSample() {
   fetch("/api/crypto-sample", { cache: "no-store" })
