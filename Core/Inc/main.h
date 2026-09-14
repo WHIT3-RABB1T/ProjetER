@@ -75,7 +75,19 @@ void Success_Handler(void);
 #define MXCHIP_RESET_GPIO_Port GPIOF
 
 /* USER CODE BEGIN Private defines */
-
+/* Blue "USER" push button, PC13 -- not part of the original .ioc pin
+ * layout (GPIOC's clock isn't even enabled by the CubeMX-generated block
+ * above), added by hand in MX_GPIO_Init() below alongside it. Confirmed
+ * against ST's real BSP for this exact board
+ * (github.com/STMicroelectronics/b-u585i-iot02a-bsp, b_u585i_iot02a.h/.c
+ * -- BUTTON_USER_PIN/BUTTON_USER_GPIO_PORT, and BSP_PB_Init()'s
+ * GPIO_PULLDOWN + BSP_PB_GetState()'s plain HAL_GPIO_ReadPin()): pulled
+ * low at rest, driven high while held down. That BSP module itself isn't
+ * vendored into this project (only the sensor/bus BSP files under
+ * Drivers/BSP/B-U585I-IOT02A are -- see sensors.h), so this reads the pin
+ * directly via HAL instead of through BSP_PB_GetState(). */
+#define USER_BUTTON_Pin GPIO_PIN_13
+#define USER_BUTTON_GPIO_Port GPIOC
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

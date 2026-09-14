@@ -439,6 +439,9 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
+  /* GPIOC: not in the original .ioc (see USER_BUTTON_Pin's comment in
+   * main.h) -- needed for the blue USER button added by hand below. */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOH, LED_RED_Pin|LED_GREEN_Pin, GPIO_PIN_SET);
@@ -490,6 +493,16 @@ static void MX_GPIO_Init(void)
   HAL_NVIC_EnableIRQ(EXTI15_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* Blue USER button (PC13) -- plain polled input, no EXTI: sensors.c
+   * (read_button()) just reads its level once per poll round, same as
+   * every other sensor category, so an interrupt has nothing to add here.
+   * GPIO_PULLDOWN matches ST's own BSP_PB_Init() for this exact pin (see
+   * USER_BUTTON_Pin's comment in main.h) -- idle low, driven high while
+   * held down. */
+  GPIO_InitStruct.Pin = USER_BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(USER_BUTTON_GPIO_Port, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_2 */
 }
 

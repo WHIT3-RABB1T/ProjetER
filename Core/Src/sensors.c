@@ -9,6 +9,7 @@
 #include "b_u585i_iot02a_motion_sensors.h"
 #include "b_u585i_iot02a_light_sensor.h"
 #include "b_u585i_iot02a_ranging_sensor.h"
+#include "main.h"  /* USER_BUTTON_Pin/USER_BUTTON_GPIO_Port -- read_button() below */
 
 /* Per-sensor init-success flags: set once in Sensors_Init(), read from
  * every Sensors_Read*JSON() below to decide whether there's anything to
@@ -387,6 +388,32 @@ static uint32_t read_ranging(char *buf, uint32_t buf_size)
     return used;
 }
 
+/* {"pressed":0|1} -- the blue USER push button (PC13, GPIOC; see
+ * USER_BUTTON_Pin's comment in main.h and its GPIO_Init() in
+ * MX_GPIO_Init(), main.c). Unlike every other category above this is a
+ * plain digital GPIO, not an I2C chip: no probe/init step that can fail
+ * at boot, so there's no *_ok flag guarding it and no failure path here
+ * to omit it on -- HAL_GPIO_ReadPin() always returns *something*, and
+ * MX_GPIO_Init() (called from main(), before the scheduler even starts)
+ * has always already configured the pin by the time this can run.
+ *
+ * Wired active-high with an internal pull-down: 0 = released/idle, 1 =
+ * currently held down. No debounce -- mechanical bounce lasts a few ms,
+ * well under one poll round (HTTP_POLL_PERIOD_MS, app_netxduo.h), so at
+ * worst a bounce shows up as one extra spurious edge in the stream, not
+ * a stuck or missed press; a caller (e.g. a game reading this from
+ * /api/latest) can debounce further on its own if that one edge matters
+ * to it. */
+static uint32_t read_button(char *buf, uint32_t buf_size)
+{
+    uint32_t used = 0;
+    GPIO_PinState state = HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin);
+
+    used = append(buf, buf_size, used, "{\"pressed\":%d}", (state == GPIO_PIN_SET) ? 1 : 0);
+    terminate(buf, buf_size, used);
+    return used;
+}
+
 const Sensors_Endpoint_t Sensors_Endpoints[] =
 {
     { "/temperature",   read_temperature   },
@@ -397,6 +424,7 @@ const Sensors_Endpoint_t Sensors_Endpoints[] =
     { "/magnetometer",  read_magnetometer  },
     { "/light",         read_light         },
     { "/ranging",       read_ranging       },
+    { "/button",        read_button        },
 };
 
 const uint32_t Sensors_EndpointCount = sizeof(Sensors_Endpoints) / sizeof(Sensors_Endpoints[0]);

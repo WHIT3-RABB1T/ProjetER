@@ -11,6 +11,12 @@
  * BSP_I2C2_Init() -- which each sensor driver's own Init()/Probe() call
  * (and which self-configures its own GPIO/clocks: no CubeMX I2C2 peripheral
  * needed in the .ioc, this is not wired through HAL_I2C_MspInit).
+ *
+ * One more category rides along in the same combined JSON object despite
+ * not being an I2C sensor at all: the board's blue USER push button
+ * (PC13, plain GPIO -- see USER_BUTTON_Pin in main.h and read_button() in
+ * sensors.c), included so button-press input is available from the same
+ * /api/latest feed as everything else, e.g. for driving a game.
  */
 #ifndef SENSORS_H
 #define SENSORS_H
@@ -35,7 +41,8 @@ void Sensors_Init(void);
  * object, one key per category -- {"temperature":{"hts221_c":23.41,
  * "lps22hh_c":23.60},"humidity":{"hts221_rh":41.20},"pressure":{...},
  * "accelerometer":{"x":-12,"y":34,"z":998},"gyroscope":{...},
- * "magnetometer":{...},"light":{"als_raw":812,"white_raw":640}} -- and
+ * "magnetometer":{...},"light":{"als_raw":812,"white_raw":640},
+ * "button":{"pressed":0}} -- and
  * returns the number of bytes written, NOT including the terminating NUL
  * (i.e. the value to pass as an HTTP Content-Length), or 0 if buf/buf_size
  * are unusable. A category whose sensor(s) failed at Sensors_Init(), or

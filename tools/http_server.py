@@ -5,7 +5,7 @@ http_server.py — minimal HTTPS server for the board's periodic HTTP client.
 The board (NetXDuo/App/app_netxduo.c, App_HTTP_Thread_Entry) POSTs one
 combined JSON reading of the whole onboard sensor suite (Core/Src/sensors.c,
 Sensors_ReadAllJSON() -- one key per category: temperature, humidity,
-pressure, accelerometer, gyroscope, magnetometer, light) to HTTP_RESOURCE
+pressure, accelerometer, gyroscope, magnetometer, light, button) to HTTP_RESOURCE
 ("/sensors") at HTTP_SERVER_ADDRESS:HTTP_SERVER_HTTPS_PORT. This answers
 POSTs by looking up each top-level key in CATEGORY_FORMATTERS below and
 logging the reading in that category's own shape (falling back to a plain
@@ -255,6 +255,7 @@ CATEGORY_FORMATTERS = {
     "magnetometer": format_axes("mgauss"),
     "light": format_generic,
     "ranging": format_ranging,
+    "button": format_generic,
 }
 
 
