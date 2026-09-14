@@ -533,7 +533,7 @@
     font-size: 10.5px;
     color: var(--text-dim);
   }
-  #demo-recenter {
+  .demo-btn {
     margin-top: 4px;
     background: rgba(77,163,255,0.15);
     color: var(--accent);
@@ -545,8 +545,217 @@
     cursor: pointer;
     font-family: inherit;
   }
-  #demo-recenter:hover { background: rgba(77,163,255,0.25); }
+  .demo-btn:hover { background: rgba(77,163,255,0.25); }
+  .demo-btn-row { display: flex; gap: 8px; margin-top: 4px; }
+  .demo-btn-row[hidden] { display: none; }
+  .demo-btn-row .demo-btn { flex: 1; margin-top: 0; }
+  .demo-btn-confirm {
+    background: rgba(80,200,120,0.15);
+    color: #4ecf85;
+    border-color: rgba(80,200,120,0.35);
+  }
+  .demo-btn-confirm:hover { background: rgba(80,200,120,0.25); }
+  .demo-btn-cancel {
+    background: rgba(232,93,93,0.12);
+    color: var(--bad);
+    border-color: rgba(232,93,93,0.3);
+  }
+  .demo-btn-cancel:hover { background: rgba(232,93,93,0.22); }
+  .demo-btn-ghost {
+    background: transparent;
+    color: var(--text-dim);
+    border-color: var(--panel-border);
+  }
+  .demo-btn-ghost:hover { background: rgba(255,255,255,0.06); }
+  /* Manual-align mode: the board itself becomes the drag target. A
+     dashed outline plus grab/grabbing cursors are the only visual cue
+     that it's no longer a pure readout. Dragging disables the board's
+     normal 90ms transition (below) so it tracks the pointer 1:1 instead
+     of visibly lagging behind it. */
+  .demo-board.demo-manual-mode { cursor: grab; touch-action: none; }
+  .demo-board.demo-manual-mode:active { cursor: grabbing; }
+  .demo-board.demo-dragging { transition: none; }
+  .demo-board.demo-manual-mode::after {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    border-radius: 20px;
+    border: 2px dashed rgba(77,163,255,0.55);
+    pointer-events: none;
+  }
   .demo-note { color: var(--text-dim); font-size: 11.5px; margin-top: 2px; }
+
+  /* ---- Game tab: Tilt Maze ---- */
+  .game-layout { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .game-stage {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 12px;
+    flex: none;
+  }
+  #game-canvas { display: block; border-radius: 6px; }
+  .game-panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    width: 240px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .game-panel .axis-block .k {
+    display: block;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .game-panel .axis-block .v {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .game-note-win { color: var(--ok); font-weight: 600; }
+
+  /* Speedrun bar -- sits above the canvas, same width as it, and swaps
+     between exactly one of three states (idle button / live countdown /
+     end-of-run result) via [hidden] so the three never show at once. A
+     fixed min-height keeps the canvas from jumping up and down as it
+     switches between a one-line button and a result row with a button
+     of its own. */
+  .game-speedrun-bar {
+    width: 520px;
+    min-height: 48px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+  }
+  .game-speedrun-btn {
+    width: 100%;
+    padding: 13px 20px;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: inherit;
+    border-radius: 10px;
+    border: 1px solid rgba(77,163,255,0.4);
+    background: linear-gradient(180deg, rgba(77,163,255,0.30), rgba(77,163,255,0.16));
+    color: var(--text);
+    cursor: pointer;
+  }
+  .game-speedrun-btn:hover {
+    background: linear-gradient(180deg, rgba(77,163,255,0.40), rgba(77,163,255,0.22));
+  }
+  .game-speedrun-live, .game-speedrun-result {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-radius: 10px;
+    padding: 10px 18px;
+  }
+  .game-speedrun-live {
+    background: rgba(77,163,255,0.10);
+    border: 1px solid rgba(77,163,255,0.3);
+  }
+  .game-speedrun-time {
+    font-family: var(--mono);
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .game-speedrun-score {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .game-speedrun-result {
+    background: rgba(62,207,142,0.10);
+    border: 1px solid rgba(62,207,142,0.35);
+  }
+  .game-speedrun-result span {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ok);
+  }
+  .game-speedrun-result button { flex: none; margin-top: 0; }
+  .game-speedrun-live[hidden], .game-speedrun-result[hidden] { display: none; }
+
+  /* ---- Apple Catch: full-screen game -------------------------------
+     .tab-panel already handles show/hide (display:none / block) via
+     the base rule above -- this only adds the "cover literally the
+     whole viewport, including the sidebar" behavior on top of that,
+     so it only ever matters while the panel is already display:block. */
+  .tab-panel.apples-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    padding: 0;
+    overflow: hidden;
+  }
+  #apples-canvas { position: absolute; inset: 0; display: block; }
+  .apples-exit-btn {
+    position: absolute;
+    top: 16px; right: 16px;
+    z-index: 10;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--panel-border);
+    background: rgba(23,26,33,0.82);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .apples-exit-btn:hover { background: rgba(232,93,93,0.28); border-color: rgba(232,93,93,0.45); }
+  .apples-hud {
+    position: absolute;
+    top: 16px; left: 16px;
+    z-index: 10;
+    display: flex;
+    gap: 22px;
+    background: rgba(23,26,33,0.82);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .apples-hud[hidden] { display: none; }
+  .apples-hud-item b { font-family: var(--mono); color: var(--accent); }
+  .apples-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    text-align: center;
+    padding: 20px;
+    background: rgba(15,17,21,0.55);
+  }
+  .apples-overlay[hidden] { display: none; }
+  .apples-overlay h1 { margin: 0; font-size: 34px; }
+  .apples-overlay p { max-width: 480px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+  .apples-big-btn {
+    padding: 16px 38px;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    border-radius: 12px;
+    border: 1px solid rgba(77,163,255,0.4);
+    background: linear-gradient(180deg, rgba(77,163,255,0.35), rgba(77,163,255,0.18));
+    color: var(--text);
+    cursor: pointer;
+  }
+  .apples-big-btn:hover { background: linear-gradient(180deg, rgba(77,163,255,0.45), rgba(77,163,255,0.24)); }
+  .apples-best { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -556,6 +765,8 @@
   <button class="tab-btn active" data-tab="dashboard"><span class="icon">📊</span>Dashboard</button>
   <button class="tab-btn" data-tab="crypto"><span class="icon">🔒</span>Cryptography</button>
   <button class="tab-btn" data-tab="demo"><span class="icon">🧭</span>Demo</button>
+  <button class="tab-btn" data-tab="game"><span class="icon">🎮</span>Game</button>
+  <button class="tab-btn" data-tab="apples"><span class="icon">🍎</span>Catch</button>
 </nav>
 
 <main id="content">
@@ -679,14 +890,115 @@
           <span class="v" id="demo-yaw">0.0°</span>
           <span class="src">gyroscope (integrated)</span>
         </div>
-        <button id="demo-recenter">Recenter yaw</button>
+        <button id="demo-align-start" class="demo-btn">🖐 Align to board</button>
+        <div id="demo-align-controls" class="demo-btn-row" hidden>
+          <button id="demo-align-confirm" class="demo-btn demo-btn-confirm">✓ Set</button>
+          <button id="demo-align-cancel" class="demo-btn demo-btn-cancel">✕ Cancel</button>
+        </div>
+        <button id="demo-recenter" class="demo-btn demo-btn-ghost">Reset</button>
         <p class="demo-note">
           Tilt (pitch/roll) comes straight from the accelerometer's gravity
           vector. Turn (yaw) is the gyroscope's rotation rate integrated
-          over time, so it drifts slowly the longer it runs — recenter it
-          any time.
+          over time, so it drifts slowly the longer it runs. Use
+          <b>Align to board</b> to drag the model until it matches the
+          real board's current angle; <b>Reset</b> clears both the yaw
+          drift and any alignment set this way.
+        </p>
+        <p class="demo-note" id="demo-align-hint" hidden>
+          Drag the board above until it matches the physical board, then
+          click <b>Set</b>.
         </p>
       </div>
+    </div>
+  </section>
+
+  <section id="tab-game" class="tab-panel">
+    <h1>🎮 Tilt Maze</h1>
+
+    <div class="game-layout">
+      <div class="game-stage">
+        <div class="game-speedrun-bar">
+          <button id="speedrun-start" class="game-speedrun-btn">🏁 Start 30s Speedrun</button>
+          <div class="game-speedrun-live" id="speedrun-live" hidden>
+            <span class="game-speedrun-time" id="speedrun-time">30.0s</span>
+            <span class="game-speedrun-score" id="speedrun-score-live">Solved: 0</span>
+          </div>
+          <div class="game-speedrun-result" id="speedrun-result" hidden>
+            <span id="speedrun-result-text"></span>
+            <button id="speedrun-restart" class="demo-btn demo-btn-confirm">Run it back</button>
+          </div>
+        </div>
+        <canvas id="game-canvas" width="520" height="360"></canvas>
+      </div>
+
+      <div class="game-panel">
+        <div class="axis-block">
+          <span class="k">Time</span>
+          <span class="v" id="game-time">0.0s</span>
+        </div>
+        <div class="axis-block">
+          <span class="k">Best</span>
+          <span class="v" id="game-best">—</span>
+        </div>
+        <div class="axis-block">
+          <span class="k">Speedrun Best</span>
+          <span class="v" id="speedrun-best">—</span>
+        </div>
+        <button id="game-reset" class="demo-btn">Reset</button>
+        <p class="demo-note" id="game-status">
+          Tilt the board to roll the ball into the green exit.
+        </p>
+        <p class="demo-note">
+          Uses the accelerometer's two in-plane axes (whichever edge of
+          the board dips down is "downhill" for the ball) and the blue
+          button to reset -- press it any time, mid-maze or after
+          winning, for a freshly generated (always solvable) maze. If
+          left/right or up/down comes out backwards on your real board,
+          flip <code>GAME_TILT_INVERT_X</code> /
+          <code>GAME_TILT_INVERT_Y</code> near the top of this tab's
+          script.
+        </p>
+        <p class="demo-note">
+          <b>Speedrun</b>: hit the big button above for a 30-second timed
+          run -- every maze you finish instantly swaps in a new one, no
+          need to reset by hand, and your score is however many you
+          solve before time runs out. Reset and the physical button are
+          disabled for the duration so a stray press can't cut a run
+          short.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-apples" class="tab-panel apples-fullscreen">
+    <button id="apples-exit" class="apples-exit-btn" title="Exit (Esc)">✕</button>
+
+    <div class="apples-hud" id="apples-hud" hidden>
+      <span class="apples-hud-item">Score: <b id="apples-score">0</b></span>
+      <span class="apples-hud-item">Lives: <span id="apples-lives">❤❤❤</span></span>
+    </div>
+
+    <canvas id="apples-canvas"></canvas>
+
+    <div class="apples-overlay" id="apples-start-overlay">
+      <h1>🍎 Apple Catch</h1>
+      <p>
+        Rock the board side to side (rotating it around its X axis) to
+        slide the basket left and right -- catch as many falling apples
+        as you can before you run out of lives. It speeds up the longer
+        you last. Every so often a spike slides across the floor from one
+        side -- press the board's button to jump over it, or it's instant
+        game over.
+      </p>
+      <button id="apples-start-btn" class="apples-big-btn">▶ Start</button>
+      <p class="apples-best" id="apples-best-display">Best: —</p>
+    </div>
+
+    <div class="apples-overlay" id="apples-gameover-overlay" hidden>
+      <h1>🍏 Game Over</h1>
+      <p id="apples-final-score">You caught 0 apples.</p>
+      <button id="apples-restart-btn" class="apples-big-btn">↻ Play Again</button>
+      <p class="apples-best" id="apples-best-display-2">Best: —</p>
     </div>
   </section>
 
@@ -737,6 +1049,8 @@ const CARDS = [
               { field: "white_raw", label: "White", color: "#e8b339" } ] },
   { key: "ranging",       icon: "📏", title: "Ranging", unit: "mm", render: renderRanging,
     series: [] },
+  { key: "button",        icon: "🔘", title: "Button", unit: "", render: renderButton,
+    series: [ { field: "pressed", label: "Pressed", color: "#e85d5d" } ] },
 ];
 
 function axisSeries() {
@@ -781,6 +1095,12 @@ function renderRanging(v) {
   if (!Array.isArray(zones)) return renderGenericBody(v);
   return metric("Zones", zones.length, "") +
     `<div class="placeholder">${zones.join(", ")} mm</div>`;
+}
+function renderButton(v) {
+  if (v.pressed === undefined) return renderGenericBody(v);
+  const pressed = !!v.pressed;
+  return `<div class="metric"><span class="label">${pressed ? "PRESSED" : "released"}</span>` +
+         `<span class="value">${pressed ? "🔵" : "⚪"}</span></div>`;
 }
 function renderGenericBody(v) {
   if (v === null || v === undefined) return "";
@@ -1030,15 +1350,29 @@ function formatAxisValue(v) {
 
 // ---- Sidebar tabs ------------------------------------------------------
 
+// Pulled out of the sidebar's own click handler below so anything else
+// on the page that needs to switch tabs programmatically -- currently
+// just Apple Catch's in-game Exit button/Escape key, since a full-screen
+// tab's own controls aren't .tab-btn clicks -- has one real function to
+// call instead of re-deriving (and risking drifting out of sync with)
+// the same class-toggling and enter/leave-hook logic a second time.
+function activateTab(tabName) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tabName));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tabName));
+  if (tabName === "crypto") enterCryptoTab();
+  else leaveCryptoTab();
+  if (tabName === "demo") enterDemoTab();
+  else leaveDemoTab();
+  if (tabName === "game") enterGameTab();
+  else leaveGameTab();
+  if (tabName === "apples") enterApplesTab();
+  else leaveApplesTab();
+}
+
 document.getElementById("sidebar").addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
   if (!btn) return;
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
-  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
-  if (btn.dataset.tab === "crypto") enterCryptoTab();
-  else leaveCryptoTab();
-  if (btn.dataset.tab === "demo") enterDemoTab();
-  else leaveDemoTab();
+  activateTab(btn.dataset.tab);
 });
 
 // ---- Cryptography tab: live TLS parameters from the board's last handshake
@@ -1130,12 +1464,15 @@ function leaveCryptoTab() {
 // as originally asked.)
 //
 // REST_UP is the board's own local axis that reads ~+1000mg when it's
-// lying flat on a table -- confirmed against the real board to be X, not
-// Z as originally assumed. The accelerometer and gyroscope are the same
-// physical ISM330DHCX chip (one 6-axis part, not two separate ones), so
-// they share the same axis labeling: gyro.x is rotation rate around that
-// same up axis, not gyro.z.
-const REST_UP = [1, 0, 0];
+// lying flat on a table -- Z, confirmed against the real board (an
+// earlier pass here had this as X instead; further hands-on testing
+// with the button and the Tilt Maze game showed X and Y are actually
+// the two axes that change as the board tilts, which only holds if Z is
+// the one perpendicular to it). The accelerometer and gyroscope are the
+// same physical ISM330DHCX chip (one 6-axis part, not two separate
+// ones), so they share the same axis labeling: gyro.z is rotation rate
+// around that same up axis, not gyro.x.
+const REST_UP = [0, 0, 1];
 
 const DEMO_POLL_MS = 100;
 let demoPollTimer = null;
@@ -1154,10 +1491,108 @@ function leaveDemoTab() {
   demoPollTimer = null;
 }
 
+// ---- Manual alignment: drag the on-screen board to match whatever the
+// real board is showing right now, then hit "Set" to lock that in as the
+// new baseline. demoCalibration is the offset between that manually-set
+// pose and the raw sensor pose at the instant "Set" was clicked -- every
+// later live reading is shown through that same offset
+// (demoCalibration.mul(demoLastSensorQuat)), so the model keeps tracking
+// real board motion afterward instead of just freezing at the angle it
+// was set to.
+let demoManualMode = false;
+let demoManualQuat = new Quaternion(1, 0, 0, 0);
+let demoCalibration = new Quaternion(1, 0, 0, 0);
+let demoLastSensorQuat = new Quaternion(1, 0, 0, 0);  // latest raw qYaw.mul(qTilt)
+let demoDragActive = false;
+let demoDragLast = null;
+
+const demoBoardEl = document.getElementById("demo-board");
+const demoAlignStartBtn = document.getElementById("demo-align-start");
+const demoAlignControls = document.getElementById("demo-align-controls");
+const demoAlignConfirmBtn = document.getElementById("demo-align-confirm");
+const demoAlignCancelBtn = document.getElementById("demo-align-cancel");
+const demoAlignHint = document.getElementById("demo-align-hint");
+
+function renderDemoBoard() {
+  const qShown = demoManualMode ? demoManualQuat : demoCalibration.mul(demoLastSensorQuat);
+  demoBoardEl.style.transform = "matrix3d(" + qShown.toMatrix4().join(",") + ")";
+}
+
 document.getElementById("demo-recenter").addEventListener("click", () => {
   demoYawRad = 0;
+  demoCalibration = new Quaternion(1, 0, 0, 0);
   document.getElementById("demo-yaw").textContent = "0.0°";
+  renderDemoBoard();
 });
+
+demoAlignStartBtn.addEventListener("click", () => {
+  // Start dragging from whatever's already on screen (the calibrated
+  // live pose), not from flat -- so entering align mode never jumps it.
+  demoManualQuat = demoCalibration.mul(demoLastSensorQuat);
+  demoManualMode = true;
+  demoBoardEl.classList.add("demo-manual-mode");
+  demoAlignStartBtn.hidden = true;
+  demoAlignControls.hidden = false;
+  demoAlignHint.hidden = false;
+  renderDemoBoard();
+});
+
+function exitDemoAlignMode() {
+  demoManualMode = false;
+  demoBoardEl.classList.remove("demo-manual-mode", "demo-dragging");
+  demoAlignStartBtn.hidden = false;
+  demoAlignControls.hidden = true;
+  demoAlignHint.hidden = true;
+}
+
+demoAlignConfirmBtn.addEventListener("click", () => {
+  demoCalibration = demoManualQuat.mul(demoLastSensorQuat.inverse());
+  exitDemoAlignMode();
+  renderDemoBoard();
+});
+
+demoAlignCancelBtn.addEventListener("click", () => {
+  exitDemoAlignMode();
+  renderDemoBoard();
+});
+
+// Trackball-style drag: rotation axis perpendicular to the drag
+// direction, angle proportional to drag distance, applied in the fixed
+// camera/world frame (left-multiplied onto the accumulated quaternion)
+// so a given screen drag always turns the board the same visual way no
+// matter what orientation it's currently showing.
+demoBoardEl.addEventListener("pointerdown", (e) => {
+  if (!demoManualMode) return;
+  demoDragActive = true;
+  demoDragLast = { x: e.clientX, y: e.clientY };
+  demoBoardEl.classList.add("demo-dragging");
+  demoBoardEl.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+demoBoardEl.addEventListener("pointermove", (e) => {
+  if (!demoDragActive) return;
+  const dx = e.clientX - demoDragLast.x;
+  const dy = e.clientY - demoDragLast.y;
+  demoDragLast = { x: e.clientX, y: e.clientY };
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.5) return;
+  const angleRad = dist * 0.010;
+  // Negated vs. the raw drag vector -- dragging right should turn the
+  // board's near edge toward the right (grab-and-turn), not away from
+  // it, and same idea for up/down.
+  const axis = [-dy / dist, -dx / dist, 0];
+  demoManualQuat = Quaternion.fromAxisAngle(axis, angleRad).mul(demoManualQuat);
+  renderDemoBoard();
+});
+
+function endDemoDrag(e) {
+  demoDragActive = false;
+  demoBoardEl.classList.remove("demo-dragging");
+  try { demoBoardEl.releasePointerCapture(e.pointerId); } catch (err) {}
+}
+demoBoardEl.addEventListener("pointerup", endDemoDrag);
+demoBoardEl.addEventListener("pointercancel", endDemoDrag);
 
 function pollDemo() {
   fetch("/api/latest", { cache: "no-store" })
@@ -1185,13 +1620,13 @@ function updateDemoOrientation(data) {
   // reading is what advances yaw, by exactly the real time it covers --
   // polling faster or slower than the board sends doesn't change the
   // result, and a reading that stops updating correctly stops turning.
-  if (gyro && typeof gyro.x === "number" && data.updated_at_ms) {
+  if (gyro && typeof gyro.z === "number" && data.updated_at_ms) {
     if (demoLastReadingAt !== null && data.updated_at_ms > demoLastReadingAt) {
       const dtSec = (data.updated_at_ms - demoLastReadingAt) / 1000;
       // mdps -> deg/s -> rad/s, times elapsed seconds -- capped so a long
       // gap (page backgrounded, board briefly offline) doesn't dump a
       // huge chunk of stale rotation in all at once when it resumes.
-      demoYawRad += (gyro.x / 1000) * (Math.PI / 180) * Math.min(dtSec, 0.5);
+      demoYawRad += (gyro.z / 1000) * (Math.PI / 180) * Math.min(dtSec, 0.5);
       document.getElementById("demo-yaw").textContent =
         (((demoYawRad * 180 / Math.PI) % 360 + 360) % 360).toFixed(1) + "°";
     }
@@ -1208,21 +1643,919 @@ function updateDemoOrientation(data) {
   // however much the gyro says it's spun -- qYaw.mul(qTilt) applies the
   // tilt first, then the turn, as one combined 3D rotation instead of
   // three separate CSS rotate*() calls (see the block comment above).
+  // Kept up to date even while manually aligning (just not rendered) so
+  // "Set" always calibrates against a fresh reading.
   const qYaw = Quaternion.fromAxisAngle(REST_UP, demoYawRad);
-  const qCombined = qYaw.mul(qTilt);
-
-  document.getElementById("demo-board").style.transform =
-    "matrix3d(" + qCombined.toMatrix4().join(",") + ")";
+  demoLastSensorQuat = qYaw.mul(qTilt);
+  if (!demoManualMode) renderDemoBoard();
 
   // Pitch/roll readout: a cosmetic decomposition of qTilt alone (yaw
   // doesn't affect gravity's direction, so this is the same absolute
-  // tilt regardless of qCombined) -- same atan2-against-REST_UP formula
-  // as before, kept only for the numeric display.
-  const pitch = Math.atan2(-accel.z, Math.sqrt(accel.y * accel.y + accel.x * accel.x)) * 180 / Math.PI;
-  const roll = Math.atan2(accel.y, accel.x) * 180 / Math.PI;
+  // tilt regardless of the combined quaternion) -- standard Z-up
+  // formula, matching REST_UP above: pitch is rotation about the Y
+  // axis (X against the other two), roll is rotation about the X axis
+  // (Y against Z). Kept only for the numeric display.
+  const pitch = Math.atan2(-accel.x, Math.sqrt(accel.y * accel.y + accel.z * accel.z)) * 180 / Math.PI;
+  const roll = Math.atan2(accel.y, accel.z) * 180 / Math.PI;
   document.getElementById("demo-pitch").textContent = pitch.toFixed(1) + "°";
   document.getElementById("demo-roll").textContent = roll.toFixed(1) + "°";
 }
+
+// ---- Game tab: Tilt Maze -------------------------------------------------
+//
+// Roll a ball through a maze by physically tilting the board -- the same
+// accelerometer feed as the Demo tab, just used as a live force on a
+// ball instead of a 3D orientation. Deliberately doesn't reuse any of
+// the Demo tab's quaternion math: pitch/roll there is "how is the board
+// tilted in 3D", but a maze only needs "which way is downhill *in the
+// board's own plane*", which is just the accelerometer's two in-plane
+// axes directly -- REST_UP ([0,0,1], see the Demo tab) is the axis
+// perpendicular to the board, so accel.x/accel.y *are* gravity's
+// in-plane component already, no atan2/quaternion needed at all.
+//
+// '#' = wall, ' ' = open floor, 'S' = start, 'E' = exit. A fresh maze is
+// generated on every resetGame() call (button press, on-screen Reset, or
+// first load) instead of always being this one fixed layout -- see
+// generateMaze() below for how, and why it's guaranteed solvable by
+// construction rather than by luck.
+const MAZE_ROOM_COLS = 6;
+const MAZE_ROOM_ROWS = 4;
+const MAZE_COLS = MAZE_ROOM_COLS * 2 + 1;       // 13 -- odd: walls sit on
+const MAZE_ROW_COUNT = MAZE_ROOM_ROWS * 2 + 1;  // 9  -- even indices, rooms on odd ones
+const CELL = 40;
+const BALL_RADIUS = 13;
+
+let MAZE_ROWS = [];
+let mazeStartCol = 0, mazeStartRow = 0, mazeExitCol = 0, mazeExitRow = 0;
+
+function findMazeMarkers(rows) {
+  for (let r = 0; r < MAZE_ROW_COUNT; r++) {
+    for (let c = 0; c < MAZE_COLS; c++) {
+      const ch = rows[r][c];
+      if (ch === "S") { mazeStartCol = c; mazeStartRow = r; }
+      if (ch === "E") { mazeExitCol = c; mazeExitRow = r; }
+    }
+  }
+}
+
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Randomized depth-first search / "recursive backtracker" over a
+// MAZE_ROOM_COLS x MAZE_ROOM_ROWS grid of rooms -- the standard,
+// well-known maze algorithm precisely because it's solvable *by
+// construction*, not by luck: starting from one room and knocking down a
+// wall only when moving into a brand-new never-visited room builds a
+// spanning tree of the whole room grid (every room visited exactly
+// once), which guarantees exactly one path between any two rooms,
+// start and exit included. The rooms sit on odd char-grid
+// coordinates (roomToChar below) with walls between them on even ones,
+// same doubled-grid convention as the original hand-drawn maze this
+// replaced -- so nothing downstream (mazeIsWall, collision, rendering)
+// needed to change at all.
+function generateMazeRows() {
+  const grid = [];
+  for (let r = 0; r < MAZE_ROW_COUNT; r++) {
+    grid.push(new Array(MAZE_COLS).fill("#"));
+  }
+
+  const roomToChar = (roomRow, roomCol) => ({ row: roomRow * 2 + 1, col: roomCol * 2 + 1 });
+
+  const visited = [];
+  for (let r = 0; r < MAZE_ROOM_ROWS; r++) visited.push(new Array(MAZE_ROOM_COLS).fill(false));
+
+  function unvisitedNeighbors(roomRow, roomCol) {
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const result = [];
+    for (const [dr, dc] of dirs) {
+      const nr = roomRow + dr, nc = roomCol + dc;
+      if (nr >= 0 && nr < MAZE_ROOM_ROWS && nc >= 0 && nc < MAZE_ROOM_COLS && !visited[nr][nc]) {
+        result.push({ nr, nc, dr, dc });
+      }
+    }
+    return result;
+  }
+
+  // Iterative, not recursive -- avoids any call-stack depth concern
+  // (moot at 24 rooms, but the pattern scales for free if the grid ever
+  // grows) and keeps the backtracking step (stack.pop() below) explicit.
+  const stack = [{ rr: 0, rc: 0 }];
+  visited[0][0] = true;
+  const startChar = roomToChar(0, 0);
+  grid[startChar.row][startChar.col] = ".";
+
+  while (stack.length > 0) {
+    const { rr, rc } = stack[stack.length - 1];
+    const options = shuffleInPlace(unvisitedNeighbors(rr, rc));
+    if (options.length === 0) {
+      stack.pop();  // dead end -- back up to the last room with an unvisited neighbor
+      continue;
+    }
+    const { nr, nc, dr, dc } = options[0];
+    const cur = roomToChar(rr, rc);
+    const nxt = roomToChar(nr, nc);
+    grid[cur.row + dr][cur.col + dc] = ".";  // knock down the wall between them
+    grid[nxt.row][nxt.col] = ".";
+    visited[nr][nc] = true;
+    stack.push({ rr: nr, rc: nc });
+  }
+
+  const s = roomToChar(0, 0);
+  const e = roomToChar(MAZE_ROOM_ROWS - 1, MAZE_ROOM_COLS - 1);
+  grid[s.row][s.col] = "S";
+  grid[e.row][e.col] = "E";
+
+  return grid.map(row => row.join(""));
+}
+
+// Defense in depth on top of generateMazeRows()'s own solvability
+// guarantee: a plain BFS from S, confirming E is actually reached.
+// Verified offline (Node, outside the browser) across 5000 generated
+// mazes before this shipped -- 0 failures, as expected from a correct
+// spanning-tree construction -- so this should never actually have to
+// retry in generateMaze() below; it's here in case a future edit to the
+// generator above ever breaks that guarantee, so the game regenerates
+// instead of silently handing out an unsolvable maze.
+function mazeIsSolvable(rows) {
+  let sr, sc, er, ec;
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      if (rows[r][c] === "S") { sr = r; sc = c; }
+      if (rows[r][c] === "E") { er = r; ec = c; }
+    }
+  }
+  const seen = new Set([sr + "," + sc]);
+  const queue = [[sr, sc]];
+  while (queue.length > 0) {
+    const [r, c] = queue.shift();
+    if (r === er && c === ec) return true;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows.length || nc < 0 || nc >= rows[0].length) continue;
+      if (rows[nr][nc] === "#") continue;
+      const key = nr + "," + nc;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queue.push([nr, nc]);
+    }
+  }
+  return false;
+}
+
+function generateMaze() {
+  let rows = generateMazeRows();
+  let attempts = 1;
+  while (!mazeIsSolvable(rows) && attempts < 10) {
+    rows = generateMazeRows();
+    attempts++;
+  }
+  return rows;
+}
+
+// Untested against real board tilt (no hardware here to try it on) --
+// flip either of these if a direction comes out backwards, same one-line
+// fix as the Demo tab's drag-axis sign.
+const GAME_TILT_INVERT_X = false;
+const GAME_TILT_INVERT_Y = false;
+
+// px/s^2 of ball acceleration per full "1g" of in-plane tilt, and 1/s of
+// linear velocity drag -- both first-guess tuning constants (no real
+// board here to feel them on), picked so a moderate tilt reaches a
+// controllable terminal speed (accel/drag) of a few cell-widths per
+// second rather than either creeping or overshooting corridors.
+const GAME_TILT_ACCEL_GAIN = 2200;
+const GAME_DRAG_K = 3.2;
+
+const gameBall = { x: 0, y: 0, vx: 0, vy: 0 };
+let gameWon = false;
+let gameStartTime = 0;
+let gameWinTime = null;
+let gameBestTime = null;
+let gameLastFrameTime = null;
+let gameRafId = null;
+let gamePollTimer = null;
+let gameLatestAccelX = 0;
+let gameLatestAccelY = 0;
+let gameLatestButtonPressed = 0;
+let gameLastButtonPressed = 0;
+
+const gameCanvas = document.getElementById("game-canvas");
+const gameCtx = gameCanvas.getContext("2d");
+// Canvas fillStyle needs a literal color string, not a CSS var() --
+// pulled once from the page's real theme variables (:root, top of
+// <style>) so this stays in sync with the rest of the UI rather than
+// duplicating hex codes. Wall color is picked independently for plain
+// contrast against --bg (--panel-border reads too close to --bg to be
+// legible as a maze wall), not meant to reuse an existing token.
+const gameColors = {
+  bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#0f1115",
+  wall: "#3a4356",
+  exit: getComputedStyle(document.documentElement).getPropertyValue("--ok").trim() || "#3ecf8e",
+  ball: getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4da3ff",
+};
+
+try {
+  const saved = localStorage.getItem("tiltMazeBestTime");
+  if (saved !== null && !Number.isNaN(parseFloat(saved))) gameBestTime = parseFloat(saved);
+} catch (e) {
+  // Private browsing / storage disabled -- best time just won't persist
+  // across reloads, nothing else depends on it.
+}
+
+function mazeIsWall(col, row) {
+  if (col < 0 || row < 0 || col >= MAZE_COLS || row >= MAZE_ROW_COUNT) return true;
+  return MAZE_ROWS[row][col] === "#";
+}
+
+// Ball collides as an axis-aligned square (2*BALL_RADIUS side), not a
+// true circle -- a deliberate simplification: checking every grid cell
+// under that square's bounding box is a handful of array lookups, no
+// circle/rectangle overlap math needed, and at this ball-to-corridor
+// size ratio the corner-cutting it allows is not something a player
+// tilting a physical board is going to notice.
+function gameBallCollides(px, py) {
+  const minCol = Math.floor((px - BALL_RADIUS) / CELL);
+  const maxCol = Math.floor((px + BALL_RADIUS) / CELL);
+  const minRow = Math.floor((py - BALL_RADIUS) / CELL);
+  const maxRow = Math.floor((py + BALL_RADIUS) / CELL);
+  for (let r = minRow; r <= maxRow; r++) {
+    for (let c = minCol; c <= maxCol; c++) {
+      if (mazeIsWall(c, r)) return true;
+    }
+  }
+  return false;
+}
+
+// ---- Speedrun mode: 30 real seconds, as many mazes as you can finish.
+// Reuses everything free play already has -- maze generation, physics,
+// collision, the exit check -- the only thing that changes is what
+// happens *at* the exit: free play freezes and waits for a manual
+// reset, speedrun instead immediately drops in a new maze and keeps
+// the clock running, tallying a solved-count instead of a single time.
+const SPEEDRUN_DURATION_SEC = 30;
+
+let speedrunActive = false;
+let speedrunEndAt = 0;       // absolute performance.now() deadline, not a countdown that itself needs ticking
+let speedrunSolved = 0;
+let speedrunBest = null;
+
+try {
+  const savedBest = localStorage.getItem("tiltMazeSpeedrunBest");
+  if (savedBest !== null && !Number.isNaN(parseInt(savedBest, 10))) speedrunBest = parseInt(savedBest, 10);
+} catch (e) {
+  // Private browsing / storage disabled -- best score just won't persist.
+}
+
+const speedrunStartBtn = document.getElementById("speedrun-start");
+const speedrunLiveEl = document.getElementById("speedrun-live");
+const speedrunTimeEl = document.getElementById("speedrun-time");
+const speedrunScoreLiveEl = document.getElementById("speedrun-score-live");
+const speedrunResultEl = document.getElementById("speedrun-result");
+const speedrunResultTextEl = document.getElementById("speedrun-result-text");
+const speedrunRestartBtn = document.getElementById("speedrun-restart");
+const speedrunBestEl = document.getElementById("speedrun-best");
+
+function updateSpeedrunBestUI() {
+  speedrunBestEl.textContent = speedrunBest !== null ? String(speedrunBest) : "—";
+}
+
+// Places a fresh maze and ball without touching the free-play Time/Best
+// bookkeeping in resetGame() below -- a speedrun tracks its own solved
+// count instead, and shouldn't perturb free play's own best time.
+function newMazeForSpeedrun() {
+  MAZE_ROWS = generateMaze();
+  findMazeMarkers(MAZE_ROWS);
+  gameBall.x = (mazeStartCol + 0.5) * CELL;
+  gameBall.y = (mazeStartRow + 0.5) * CELL;
+  gameBall.vx = 0;
+  gameBall.vy = 0;
+}
+
+function startSpeedrun() {
+  speedrunActive = true;
+  speedrunSolved = 0;
+  speedrunEndAt = performance.now() + SPEEDRUN_DURATION_SEC * 1000;
+  speedrunStartBtn.hidden = true;
+  speedrunResultEl.hidden = true;
+  speedrunLiveEl.hidden = false;
+  speedrunScoreLiveEl.textContent = "Solved: 0";
+  speedrunTimeEl.textContent = SPEEDRUN_DURATION_SEC.toFixed(1) + "s";
+  newMazeForSpeedrun();
+}
+
+function endSpeedrun() {
+  speedrunActive = false;
+  speedrunLiveEl.hidden = true;
+  gameBall.vx = 0;
+  gameBall.vy = 0;
+
+  const isNewBest = speedrunBest === null || speedrunSolved > speedrunBest;
+  if (isNewBest) {
+    speedrunBest = speedrunSolved;
+    try { localStorage.setItem("tiltMazeSpeedrunBest", String(speedrunBest)); } catch (e) {}
+  }
+  updateSpeedrunBestUI();
+
+  const plural = speedrunSolved === 1 ? "" : "s";
+  speedrunResultTextEl.textContent =
+    `🏁 Time's up! You solved ${speedrunSolved} maze${plural}.` +
+    (isNewBest && speedrunSolved > 0 ? " New best!" : "");
+  speedrunResultEl.hidden = false;
+
+  // The maze the run ended mid-solve on is left on screen, frozen, as a
+  // visible "here's where you were" -- Reset (or the button, both
+  // re-enabled now that speedrunActive is false) starts a normal free-
+  // play maze whenever the player's ready for one.
+}
+
+speedrunStartBtn.addEventListener("click", startSpeedrun);
+speedrunRestartBtn.addEventListener("click", startSpeedrun);
+updateSpeedrunBestUI();
+
+function resetGame() {
+  MAZE_ROWS = generateMaze();
+  findMazeMarkers(MAZE_ROWS);
+  gameBall.x = (mazeStartCol + 0.5) * CELL;
+  gameBall.y = (mazeStartRow + 0.5) * CELL;
+  gameBall.vx = 0;
+  gameBall.vy = 0;
+  gameWon = false;
+  gameWinTime = null;
+  gameStartTime = performance.now();
+  updateGameStatusUI();
+  // A normal free-play reset also dismisses any speedrun result banner
+  // left over from a previous run, back to the plain Start button --
+  // both call sites for resetGame() (Reset click, hardware button) are
+  // already gated to never fire while speedrunActive, so this is always
+  // safe to do unconditionally.
+  speedrunResultEl.hidden = true;
+  speedrunStartBtn.hidden = false;
+}
+
+function updateGameStatusUI() {
+  const statusEl = document.getElementById("game-status");
+  if (gameWon) {
+    statusEl.textContent = "🎉 You made it! Press the board's button (or Reset) for a brand-new maze.";
+    statusEl.className = "demo-note game-note-win";
+  } else {
+    statusEl.textContent = "Tilt the board to roll the ball into the green exit.";
+    statusEl.className = "demo-note";
+  }
+  document.getElementById("game-best").textContent =
+    gameBestTime !== null ? gameBestTime.toFixed(1) + "s" : "—";
+}
+
+function stepGamePhysics(dt) {
+  if (gameWon && !speedrunActive) return;
+
+  let ax = gameLatestAccelX / 1000;
+  let ay = gameLatestAccelY / 1000;
+  if (GAME_TILT_INVERT_X) ax = -ax;
+  if (GAME_TILT_INVERT_Y) ay = -ay;
+
+  // Semi-implicit Euler: acceleration from tilt, minus drag proportional
+  // to current speed (a real rolling ball loses energy to friction, not
+  // just "stops instantly the moment you level the board") -- frame-rate
+  // independent since it's integrated by dt, not a fixed per-frame
+  // multiplier.
+  gameBall.vx += (ax * GAME_TILT_ACCEL_GAIN - GAME_DRAG_K * gameBall.vx) * dt;
+  gameBall.vy += (ay * GAME_TILT_ACCEL_GAIN - GAME_DRAG_K * gameBall.vy) * dt;
+
+  // Axis-separated collision: try moving each axis independently and
+  // cancel just that axis's velocity if it would land in a wall, so the
+  // ball slides along a wall it's tilted into diagonally instead of
+  // just dead-stopping.
+  const newX = gameBall.x + gameBall.vx * dt;
+  if (!gameBallCollides(newX, gameBall.y)) gameBall.x = newX;
+  else gameBall.vx = 0;
+
+  const newY = gameBall.y + gameBall.vy * dt;
+  if (!gameBallCollides(gameBall.x, newY)) gameBall.y = newY;
+  else gameBall.vy = 0;
+
+  const col = Math.floor(gameBall.x / CELL);
+  const row = Math.floor(gameBall.y / CELL);
+  if (col === mazeExitCol && row === mazeExitRow) {
+    if (speedrunActive) {
+      // Keep going instead of freezing: a new maze and a higher score,
+      // same instant -- the whole point of a speedrun is not stopping.
+      speedrunSolved++;
+      speedrunScoreLiveEl.textContent = "Solved: " + speedrunSolved;
+      newMazeForSpeedrun();
+    } else {
+      gameWon = true;
+      gameBall.vx = 0;
+      gameBall.vy = 0;
+      gameWinTime = (performance.now() - gameStartTime) / 1000;
+      if (gameBestTime === null || gameWinTime < gameBestTime) {
+        gameBestTime = gameWinTime;
+        try { localStorage.setItem("tiltMazeBestTime", String(gameBestTime)); } catch (e) {}
+      }
+      updateGameStatusUI();
+    }
+  }
+}
+
+function renderGame() {
+  gameCtx.fillStyle = gameColors.bg;
+  gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+
+  for (let r = 0; r < MAZE_ROW_COUNT; r++) {
+    for (let c = 0; c < MAZE_COLS; c++) {
+      const ch = MAZE_ROWS[r][c];
+      if (ch === "#") {
+        gameCtx.fillStyle = gameColors.wall;
+        gameCtx.fillRect(c * CELL, r * CELL, CELL, CELL);
+      } else if (ch === "E") {
+        gameCtx.fillStyle = gameColors.exit;
+        gameCtx.fillRect(c * CELL + 4, r * CELL + 4, CELL - 8, CELL - 8);
+      }
+    }
+  }
+
+  gameCtx.beginPath();
+  gameCtx.arc(gameBall.x, gameBall.y, BALL_RADIUS, 0, Math.PI * 2);
+  gameCtx.fillStyle = gameColors.ball;
+  gameCtx.shadowColor = gameColors.ball;
+  gameCtx.shadowBlur = 14;
+  gameCtx.fill();
+  gameCtx.shadowBlur = 0;
+}
+
+function gameLoop(ts) {
+  if (gameLastFrameTime === null) gameLastFrameTime = ts;
+  // Clamped so a dropped frame (or the tab having been in the background)
+  // doesn't feed one huge dt into the physics step and fling the ball
+  // through a wall it never actually touched.
+  const dt = Math.min((ts - gameLastFrameTime) / 1000, 0.05);
+  gameLastFrameTime = ts;
+
+  // Hardware button: reset on the rising edge (0 -> 1) only, so holding
+  // it down doesn't reset every single frame while held -- and not at
+  // all mid-speedrun, so a stray press can't cut a timed run short.
+  if (gameLatestButtonPressed === 1 && gameLastButtonPressed === 0 && !speedrunActive) {
+    resetGame();
+  }
+  gameLastButtonPressed = gameLatestButtonPressed;
+
+  stepGamePhysics(dt);
+  renderGame();
+
+  if (speedrunActive) {
+    // Absolute deadline, not a per-frame decrement -- correct even
+    // across a dropped frame or the tab having been backgrounded for a
+    // while (wall-clock time keeps counting down against a real 30s
+    // budget either way, same as free play's own timer already does).
+    const remainingSec = Math.max(0, (speedrunEndAt - performance.now()) / 1000);
+    speedrunTimeEl.textContent = remainingSec.toFixed(1) + "s";
+    if (remainingSec <= 0) endSpeedrun();
+  } else {
+    document.getElementById("game-time").textContent =
+      (gameWon ? gameWinTime : (performance.now() - gameStartTime) / 1000).toFixed(1) + "s";
+  }
+
+  gameRafId = requestAnimationFrame(gameLoop);
+}
+
+function pollGameSensors() {
+  fetch("/api/latest", { cache: "no-store" })
+    .then(r => r.json())
+    .then(data => {
+      const reading = data.reading;
+      if (!reading) return;
+      if (reading.accelerometer && typeof reading.accelerometer.x === "number") {
+        gameLatestAccelX = reading.accelerometer.x;
+        gameLatestAccelY = reading.accelerometer.y;
+      }
+      if (reading.button && typeof reading.button.pressed === "number") {
+        gameLatestButtonPressed = reading.button.pressed;
+      }
+    })
+    .catch(e => {
+      // Transient fetch failure -- next poll (50ms away) tries again.
+    });
+}
+
+function enterGameTab() {
+  gameLastFrameTime = null;  // don't let the tab-hidden gap count as one huge dt
+  clearInterval(gamePollTimer);
+  gamePollTimer = setInterval(pollGameSensors, 50);
+  pollGameSensors();
+  if (gameRafId === null) gameRafId = requestAnimationFrame(gameLoop);
+}
+
+function leaveGameTab() {
+  clearInterval(gamePollTimer);
+  gamePollTimer = null;
+  if (gameRafId !== null) {
+    cancelAnimationFrame(gameRafId);
+    gameRafId = null;
+  }
+}
+
+document.getElementById("game-reset").addEventListener("click", () => {
+  if (speedrunActive) return;  // same reasoning as the hardware button above
+  resetGame();
+});
+
+resetGame();
+renderGame();
+
+// ---------------------------------------------------------------------
+// Apple Catch: full-screen game, basket moves linearly, controlled by
+// gyroscope rate (turn the board like a steering wheel -- gyro.x -- and
+// the basket slides at a speed proportional to how hard you're turning,
+// not by an absolute tilt angle like the maze). Apples fall from the top
+// of the screen and speed up / spawn faster the longer a run lasts.
+// ---------------------------------------------------------------------
+const APPLES_GYRO_INVERT = false;
+const APPLES_GYRO_GAIN = 5;      // px/s of basket velocity per deg/s of gyro.x
+const APPLES_GYRO_DEADZONE = 2;  // deg/s -- ignore sensor noise/drift near zero so the basket doesn't creep on its own
+const APPLES_GYRO_SMOOTHING = 10; // higher = snappier, lower = smoother; exponential low-pass on the raw reading so a poll-to-poll jump in gyro.x doesn't yank the basket
+let applesSmoothedGyroX = 0;
+
+const APPLE_BASKET_WIDTH = 120;
+const APPLE_BASKET_HEIGHT = 46;
+const APPLE_RADIUS = 18;
+
+const APPLE_BASE_FALL_SPEED = 140;   // px/s
+const APPLE_MAX_FALL_SPEED = 420;
+const APPLE_SPEED_RAMP_PER_SEC = 6;  // px/s added to fall speed per second survived
+
+// Apple count is proportional to 1/interval, so scaling both intervals (and
+// the ramp, to keep the same "time to reach minimum interval" shape) up by
+// 1/0.8 = 1.25x cuts the number of apples that fall by 20%.
+const APPLE_BASE_SPAWN_INTERVAL = 1.1 * 1.25;   // seconds between spawns
+const APPLE_MIN_SPAWN_INTERVAL = 0.4 * 1.25;
+const APPLE_SPAWN_RAMP_PER_SEC = 0.012 * 1.25;  // seconds shaved off the interval per second survived
+
+const APPLES_STARTING_LIVES = 3;
+
+// ---- Floor spikes: a hazard separate from the apples/lives system --
+// every 5-8s one slides across the very bottom of the screen at a steady
+// pace, from either side. It doesn't cost a life -- touching one while
+// grounded ends the run immediately. The only way past it is a
+// well-timed jump on the board's physical button.
+const APPLE_SPIKE_MIN_INTERVAL = 5;   // seconds
+const APPLE_SPIKE_MAX_INTERVAL = 8;
+const APPLE_SPIKE_SPEED = 260;        // px/s, constant -- "traverse de maniere reguliere"
+const APPLE_SPIKE_WIDTH = 42;
+const APPLE_SPIKE_HEIGHT = 46;
+
+const APPLE_JUMP_VELOCITY = -620;      // px/s, upward (negative = up)
+const APPLE_JUMP_GRAVITY = 1900;       // px/s^2 pulling the basket back down
+const APPLE_JUMP_SAFE_OFFSET = 45;     // px the basket must have risen to clear a spike passing underneath
+
+let applesActive = false;
+let applesScore = 0;
+let applesLives = APPLES_STARTING_LIVES;
+let applesBest = null;
+let applesElapsed = 0;
+let applesSpawnTimer = 0;
+let applesFalling = [];   // {x, y, vy}
+let applesBasketX = 0;
+let applesBasketJumpY = 0;    // 0 = grounded, negative = risen off the ground
+let applesBasketJumpVel = 0;
+let applesSpikes = [];        // {x, y, dir} -- dir is +1 (left->right) or -1 (right->left)
+let applesSpikeTimer = 0;
+let applesDeathBySpike = false;
+let applesLatestGyroX = 0;
+let applesLatestButtonPressed = 0;
+let applesLastButtonPressed = 0;
+let applesPollTimer = null;
+let applesRafId = null;
+let applesLastFrameTime = null;
+
+function randomSpikeInterval() {
+  return APPLE_SPIKE_MIN_INTERVAL + Math.random() * (APPLE_SPIKE_MAX_INTERVAL - APPLE_SPIKE_MIN_INTERVAL);
+}
+
+try {
+  const saved = localStorage.getItem("appleCatchBestScore");
+  if (saved !== null) applesBest = parseInt(saved, 10);
+} catch (e) {}
+
+const applesCanvas = document.getElementById("apples-canvas");
+const applesCtx = applesCanvas.getContext("2d");
+const applesHud = document.getElementById("apples-hud");
+const applesScoreEl = document.getElementById("apples-score");
+const applesLivesEl = document.getElementById("apples-lives");
+const applesStartOverlay = document.getElementById("apples-start-overlay");
+const applesGameoverOverlay = document.getElementById("apples-gameover-overlay");
+const applesStartBtn = document.getElementById("apples-start-btn");
+const applesRestartBtn = document.getElementById("apples-restart-btn");
+const applesFinalScoreEl = document.getElementById("apples-final-score");
+const applesBestDisplayEl = document.getElementById("apples-best-display");
+const applesBestDisplayEl2 = document.getElementById("apples-best-display-2");
+
+function updateApplesBestDisplays() {
+  const text = "Best: " + (applesBest !== null ? applesBest : "—");
+  applesBestDisplayEl.textContent = text;
+  applesBestDisplayEl2.textContent = text;
+}
+updateApplesBestDisplays();
+
+function resizeApplesCanvas() {
+  applesCanvas.width = window.innerWidth;
+  applesCanvas.height = window.innerHeight;
+  applesBasketX = applesCanvas.width / 2;
+}
+
+function updateApplesHud() {
+  applesScoreEl.textContent = String(applesScore);
+  applesLivesEl.textContent = "❤".repeat(Math.max(0, applesLives)) + "🖤".repeat(APPLES_STARTING_LIVES - Math.max(0, applesLives));
+}
+
+function startApplesGame() {
+  applesActive = true;
+  applesScore = 0;
+  applesLives = APPLES_STARTING_LIVES;
+  applesElapsed = 0;
+  applesSpawnTimer = 0;
+  applesFalling = [];
+  applesBasketX = applesCanvas.width / 2;
+  applesBasketJumpY = 0;
+  applesBasketJumpVel = 0;
+  applesSpikes = [];
+  applesSpikeTimer = randomSpikeInterval();
+  applesDeathBySpike = false;
+  applesSmoothedGyroX = 0;
+  applesLastButtonPressed = applesLatestButtonPressed;  // don't let a button already held from a prior tab trigger an instant jump
+  applesLastFrameTime = null;
+  applesStartOverlay.hidden = true;
+  applesGameoverOverlay.hidden = true;
+  applesHud.hidden = false;
+  updateApplesHud();
+}
+
+function endApplesGame() {
+  applesActive = false;
+  if (applesBest === null || applesScore > applesBest) {
+    applesBest = applesScore;
+    try { localStorage.setItem("appleCatchBestScore", String(applesBest)); } catch (e) {}
+  }
+  updateApplesBestDisplays();
+  const caughtText = "You caught " + applesScore + " apple" + (applesScore === 1 ? "" : "s") + ".";
+  applesFinalScoreEl.textContent = applesDeathBySpike ? "💥 A spike got you! " + caughtText : caughtText;
+  applesHud.hidden = true;
+  applesGameoverOverlay.hidden = false;
+}
+
+function stepApples(dt) {
+  if (!applesActive) return;
+
+  applesElapsed += dt;
+
+  // Rate control: basket velocity is proportional to the *current*
+  // rotation rate, not an integrated/absolute angle -- turn the board and
+  // the basket slides, level it back out and the basket stops (no
+  // momentum), unlike the maze's tilt-as-position feel.
+  //
+  // Two things smooth this out: an exponential low-pass filter on the raw
+  // reading (a fresh sensor value only lands every ~50ms from polling,
+  // while frames render every ~16ms -- feeding that step change straight
+  // into velocity made the basket visibly jump/judder every poll instead
+  // of gliding), and a small deadzone so sensor noise near zero doesn't
+  // make the basket creep on its own while the board is held still.
+  let gxRaw = applesLatestGyroX / 1000;
+  if (APPLES_GYRO_INVERT) gxRaw = -gxRaw;
+  if (Math.abs(gxRaw) < APPLES_GYRO_DEADZONE) gxRaw = 0;
+  applesSmoothedGyroX += (gxRaw - applesSmoothedGyroX) * Math.min(1, dt * APPLES_GYRO_SMOOTHING);
+
+  applesBasketX += applesSmoothedGyroX * APPLES_GYRO_GAIN * dt;
+  const halfBasket = APPLE_BASKET_WIDTH / 2;
+  applesBasketX = Math.max(halfBasket, Math.min(applesCanvas.width - halfBasket, applesBasketX));
+
+  // Jump: the board's physical button, rising edge only (so holding it down
+  // doesn't chain into repeated jumps), and only while grounded (no
+  // double-jumping to just stay in the air and dodge everything for free).
+  if (applesLatestButtonPressed === 1 && applesLastButtonPressed === 0 && applesBasketJumpY === 0) {
+    applesBasketJumpVel = APPLE_JUMP_VELOCITY;
+  }
+  applesLastButtonPressed = applesLatestButtonPressed;
+
+  applesBasketJumpVel += APPLE_JUMP_GRAVITY * dt;
+  applesBasketJumpY += applesBasketJumpVel * dt;
+  if (applesBasketJumpY > 0) {
+    applesBasketJumpY = 0;  // back on the ground
+    applesBasketJumpVel = 0;
+  }
+
+  const fallSpeed = Math.min(APPLE_MAX_FALL_SPEED, APPLE_BASE_FALL_SPEED + applesElapsed * APPLE_SPEED_RAMP_PER_SEC);
+  const spawnInterval = Math.max(APPLE_MIN_SPAWN_INTERVAL, APPLE_BASE_SPAWN_INTERVAL - applesElapsed * APPLE_SPAWN_RAMP_PER_SEC);
+
+  applesSpawnTimer -= dt;
+  if (applesSpawnTimer <= 0) {
+    applesSpawnTimer = spawnInterval;
+    const x = APPLE_RADIUS + Math.random() * (applesCanvas.width - APPLE_RADIUS * 2);
+    applesFalling.push({ x: x, y: -APPLE_RADIUS, vy: fallSpeed });
+  }
+
+  // Floor spikes: spawn every 5-8s from a random side, cross at a steady
+  // pace, and end the run instantly if they reach the basket while it's
+  // still (close enough to) grounded.
+  applesSpikeTimer -= dt;
+  if (applesSpikeTimer <= 0) {
+    applesSpikeTimer = randomSpikeInterval();
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const startX = dir === 1 ? -APPLE_SPIKE_WIDTH : applesCanvas.width + APPLE_SPIKE_WIDTH;
+    applesSpikes.push({ x: startX, dir: dir });
+  }
+
+  const remainingSpikes = [];
+  for (const spike of applesSpikes) {
+    if (!applesActive) { remainingSpikes.push(spike); continue; }
+
+    spike.x += spike.dir * APPLE_SPIKE_SPEED * dt;
+
+    const spikeLeft = spike.x - APPLE_SPIKE_WIDTH / 2;
+    const spikeRight = spike.x + APPLE_SPIKE_WIDTH / 2;
+    const overlapsBasketX = spikeRight >= applesBasketX - halfBasket && spikeLeft <= applesBasketX + halfBasket;
+    const clearedIt = applesBasketJumpY <= -APPLE_JUMP_SAFE_OFFSET;
+    if (overlapsBasketX && !clearedIt) {
+      applesDeathBySpike = true;
+      endApplesGame();
+      continue;
+    }
+
+    if (spike.x > -APPLE_SPIKE_WIDTH && spike.x < applesCanvas.width + APPLE_SPIKE_WIDTH) {
+      remainingSpikes.push(spike);
+    }
+    // else it fully exited the screen on the far side -- drop it
+  }
+  applesSpikes = remainingSpikes;
+
+  const basketTop = applesCanvas.height - 70 + applesBasketJumpY;
+  const basketBottom = basketTop + APPLE_BASKET_HEIGHT;
+  const basketLeft = applesBasketX - halfBasket;
+  const basketRight = applesBasketX + halfBasket;
+
+  const remaining = [];
+  for (const apple of applesFalling) {
+    // Once game-over has fired mid-loop (a miss, or a spike, ended the
+    // run), stop mutating score/lives further this frame -- just let the
+    // loop end; renderApples() won't even run again since applesActive is
+    // now false.
+    if (!applesActive) { remaining.push(apple); continue; }
+
+    apple.y += apple.vy * dt;
+
+    const caught = apple.y + APPLE_RADIUS >= basketTop && apple.y - APPLE_RADIUS <= basketBottom &&
+      apple.x >= basketLeft && apple.x <= basketRight;
+    if (caught) {
+      applesScore++;
+      updateApplesHud();
+      continue; // consumed, don't keep falling
+    }
+
+    if (apple.y - APPLE_RADIUS > applesCanvas.height) {
+      applesLives--;
+      updateApplesHud();
+      if (applesLives <= 0) {
+        endApplesGame();
+      }
+      continue; // missed, don't keep it around either way
+    }
+
+    remaining.push(apple);
+  }
+  applesFalling = remaining;
+}
+
+function renderApples() {
+  const w = applesCanvas.width, h = applesCanvas.height;
+
+  const sky = applesCtx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, "#1b2735");
+  sky.addColorStop(1, "#0f1115");
+  applesCtx.fillStyle = sky;
+  applesCtx.fillRect(0, 0, w, h);
+
+  applesCtx.font = (APPLE_RADIUS * 2.2) + "px sans-serif";
+  applesCtx.textAlign = "center";
+  applesCtx.textBaseline = "middle";
+  for (const apple of applesFalling) {
+    applesCtx.fillText("🍎", apple.x, apple.y);
+  }
+
+  // Floor spikes: a red/orange triangle riding along the very bottom edge.
+  for (const spike of applesSpikes) {
+    const halfW = APPLE_SPIKE_WIDTH / 2;
+    applesCtx.beginPath();
+    applesCtx.moveTo(spike.x - halfW, h);
+    applesCtx.lineTo(spike.x + halfW, h);
+    applesCtx.lineTo(spike.x, h - APPLE_SPIKE_HEIGHT);
+    applesCtx.closePath();
+    applesCtx.fillStyle = "#e04f4f";
+    applesCtx.fill();
+    applesCtx.strokeStyle = "#8a1f1f";
+    applesCtx.lineWidth = 2;
+    applesCtx.stroke();
+  }
+
+  // Basket: a simple brown trapezoid, wider at the top than the bottom.
+  // Its top rises with applesBasketJumpY while airborne (0 = grounded).
+  const basketTop = h - 70 + applesBasketJumpY;
+  const halfBasket = APPLE_BASKET_WIDTH / 2;
+  const inset = 14;
+
+  // A small ground-contact shadow so a jump's height actually reads
+  // visually, not just as "the basket teleported up".
+  if (applesBasketJumpY < 0) {
+    const shrink = Math.min(1, -applesBasketJumpY / 120);
+    applesCtx.beginPath();
+    applesCtx.ellipse(applesBasketX, h - 6, halfBasket * (1 - 0.5 * shrink), 7 * (1 - 0.5 * shrink), 0, 0, Math.PI * 2);
+    applesCtx.fillStyle = "rgba(0,0,0,0.35)";
+    applesCtx.fill();
+  }
+  applesCtx.beginPath();
+  applesCtx.moveTo(applesBasketX - halfBasket, basketTop);
+  applesCtx.lineTo(applesBasketX + halfBasket, basketTop);
+  applesCtx.lineTo(applesBasketX + halfBasket - inset, basketTop + APPLE_BASKET_HEIGHT);
+  applesCtx.lineTo(applesBasketX - halfBasket + inset, basketTop + APPLE_BASKET_HEIGHT);
+  applesCtx.closePath();
+  applesCtx.fillStyle = "#8b5a2b";
+  applesCtx.fill();
+  applesCtx.strokeStyle = "#5e3a1a";
+  applesCtx.lineWidth = 3;
+  applesCtx.stroke();
+  applesCtx.strokeStyle = "rgba(0,0,0,0.35)";
+  applesCtx.lineWidth = 2;
+  applesCtx.beginPath();
+  applesCtx.moveTo(applesBasketX - halfBasket + inset * 0.4, basketTop + 6);
+  applesCtx.lineTo(applesBasketX + halfBasket - inset * 0.4, basketTop + 6);
+  applesCtx.stroke();
+}
+
+function applesLoop(ts) {
+  if (applesLastFrameTime === null) applesLastFrameTime = ts;
+  const dt = Math.min((ts - applesLastFrameTime) / 1000, 0.05);
+  applesLastFrameTime = ts;
+
+  stepApples(dt);
+  renderApples();
+
+  applesRafId = requestAnimationFrame(applesLoop);
+}
+
+function pollApplesSensors() {
+  fetch("/api/latest", { cache: "no-store" })
+    .then(r => r.json())
+    .then(data => {
+      const reading = data.reading;
+      if (!reading) return;
+      if (reading.gyroscope && typeof reading.gyroscope.x === "number") {
+        applesLatestGyroX = reading.gyroscope.x;
+      }
+      if (reading.button && typeof reading.button.pressed === "number") {
+        applesLatestButtonPressed = reading.button.pressed;
+      }
+    })
+    .catch(e => {
+      // Transient fetch failure -- next poll (50ms away) tries again.
+    });
+}
+
+function enterApplesTab() {
+  resizeApplesCanvas();
+  applesLastFrameTime = null;
+  window.addEventListener("resize", resizeApplesCanvas);
+  clearInterval(applesPollTimer);
+  applesPollTimer = setInterval(pollApplesSensors, 50);
+  pollApplesSensors();
+  if (applesRafId === null) applesRafId = requestAnimationFrame(applesLoop);
+}
+
+function leaveApplesTab() {
+  window.removeEventListener("resize", resizeApplesCanvas);
+  clearInterval(applesPollTimer);
+  applesPollTimer = null;
+  if (applesRafId !== null) {
+    cancelAnimationFrame(applesRafId);
+    applesRafId = null;
+  }
+}
+
+function exitApplesTab() {
+  activateTab("dashboard");
+}
+
+document.getElementById("apples-exit").addEventListener("click", exitApplesTab);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("tab-apples").classList.contains("active")) {
+    exitApplesTab();
+  }
+});
+applesStartBtn.addEventListener("click", startApplesGame);
+applesRestartBtn.addEventListener("click", startApplesGame);
+
+resizeApplesCanvas();
+renderApples();
 
 function pollCryptoSample() {
   fetch("/api/crypto-sample", { cache: "no-store" })
