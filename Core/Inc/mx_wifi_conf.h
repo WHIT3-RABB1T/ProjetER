@@ -55,8 +55,18 @@ int32_t mxwifi_probe(void **ll_drv_context);
 #endif /* MX_WIFI_TX_BUFFER_NO_COPY */
 
 
-#define WIFI_SSID                                   "Galaxy S25 48F2"
-#define WIFI_PASSWORD                               "yj7qkctbtk8tcqr"
+/* Used to be fixed string literals here -- both the real network name
+ * *and its password*, committed straight into tracked source. Now
+ * runtime-populated buffers instead (wifi_provisioning.h/.c): a saved
+ * network read back from flash, or freshly typed over the debug UART at
+ * boot if none is saved yet -- see WifiProvisioning_Init() for which,
+ * decided fresh every boot. Every place that already used these two
+ * macros (nx_driver_emw3080.c, all vendored ST middleware, untouched by
+ * this change) keeps working exactly as before: a `char*` is a `char*`
+ * whether it points at a literal or a variable. */
+#include "wifi_provisioning.h"
+#define WIFI_SSID                                   g_wifi_ssid
+#define WIFI_PASSWORD                               g_wifi_password
 
 /* DEBUG LOG
  * Was enabled to diagnose Wi-Fi join/DHCP -- both are now conclusively

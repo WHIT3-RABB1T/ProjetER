@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "app_azure_rtos.h"
 #include "sensors.h"
+#include "wifi_provisioning.h"
 #include <string.h>   /* memcmp -- Discover_ServerIP() below, comparing a received UDP reply against DISCOVERY_REPLY */
 /* USER CODE END Includes */
 
@@ -255,7 +256,7 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
    * whatever this string currently is -- bump the tag every time this
    * file's instrumentation changes, so "is this actually the build I just
    * flashed" is never a judgment call again. */
-  printf("=== BUILD_MARKER: diag-v9-tight-watchdog+discovery-progress ===\r\n");
+  printf("=== BUILD_MARKER: diag-v12-serial-wifi-button-window ===\r\n");
   printf("Nx_UDP_Echo_Client_App started..\n");
 
   /* See tx_user.h (TX_ENABLE_STACK_CHECKING) and diag_stack_error_notify
@@ -290,6 +291,16 @@ UINT MX_NetXDuo_Init(VOID *memory_ptr)
   {
     return TX_POOL_ERROR;
   }
+
+  /* Decide/collect the network to join *before* the IP instance below is
+   * created: nx_ip_create() synchronously runs the Wi-Fi driver's
+   * initialize+enable sequence (nx_driver_emw3080.c), which reads
+   * WIFI_SSID/WIFI_PASSWORD (now g_wifi_ssid/g_wifi_password -- see
+   * mx_wifi_conf.h and wifi_provisioning.h/.c) right then, not later.
+   * Blocks on a serial prompt if there's no saved network yet (or the
+   * USER button is held) -- see wifi_provisioning.h for why that's fine
+   * here. */
+  WifiProvisioning_Init();
 
   /* Create the main NX_IP instance -- this synchronously invokes the
    * mx_wifi driver's INITIALIZE command below (module reset/init, MAC
