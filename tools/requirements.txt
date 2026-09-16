@@ -1,0 +1,5 @@
+# Only used by http_server.py's Cryptography dashboard tab
+# (_serve_cert_info_json) to parse tools/certs/server.crt/.key -- the rest
+# of the server is pure stdlib and runs fine without it (see the
+# try/except ImportError around this in http_server.py).
+cryptography
