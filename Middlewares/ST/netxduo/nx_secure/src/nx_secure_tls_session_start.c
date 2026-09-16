@@ -90,12 +90,39 @@ UINT _nx_secure_tls_session_start(NX_SECURE_TLS_SESSION *tls_session, NX_TCP_SOC
 {
 UINT       status = NX_NOT_SUCCESSFUL;
 UINT       error_return;
+UINT       mutex_status;
 #ifndef NX_SECURE_TLS_CLIENT_DISABLED
 NX_PACKET *send_packet;
 #endif
 
-    /* Get the protection. */
-    tx_mutex_get(&_nx_secure_tls_protection, TX_WAIT_FOREVER);
+    /* Get the protection.
+     *
+     * PATCHED (ProjetER): this was tx_mutex_get(&_nx_secure_tls_protection,
+     * TX_WAIT_FOREVER) -- if _nx_secure_tls_protection is ever left held by
+     * another thread (observed on real hardware: the Wi-Fi driver's SPI
+     * command path can stall indefinitely, and 13/13 sampled occurrences in
+     * a real serial log never recovered on their own even given 10-12s),
+     * every future call to this function -- i.e. every future TLS handshake,
+     * system-wide -- hung forever, silently, regardless of the wait_option
+     * the application passed in. The only thing that ever recovered from it
+     * was an IWDG hardware reset of the entire board.
+     *
+     * Bounding this specific acquisition by the caller's own wait_option
+     * (already a parameter here, already what the API contract documents)
+     * turns that same event into a normal, boundable failure: this function
+     * returns before touching any of tls_session's state (nothing below has
+     * run yet), so the caller's existing error handling -- already written
+     * to treat any non-NX_SUCCESS return from nx_web_http_client_post_secure_start
+     * as "tear down and reconnect next round" (see App_HTTP_Thread_Entry in
+     * app_netxduo.c) -- takes over immediately instead of the thread simply
+     * never coming back. This does not release the mutex from whoever's
+     * actually still holding it (that's a separate bug, wherever it is);
+     * it only stops *this* caller from being dragged into that hang too. */
+    mutex_status = tx_mutex_get(&_nx_secure_tls_protection, wait_option);
+    if (mutex_status != TX_SUCCESS)
+    {
+        return(NX_NOT_SUCCESSFUL);
+    }
 
     if (!tls_session -> nx_secure_tls_packet_pool)
     {

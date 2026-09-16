@@ -101,8 +101,23 @@ NX_PACKET     *current_packet;
 NX_PACKET     *previous_packet;
 UCHAR          handshake_finished = NX_FALSE;
 
-    /* Get the protection. */
-    tx_mutex_get(&_nx_secure_tls_protection, TX_WAIT_FOREVER);
+    /* PATCHED (ProjetER) diag: fine-grained sibling of app_netxduo.c's
+     * RoundStep -- see DiagTlsSubStep's own comment there for why this
+     * exists and what each value means. Declared here rather than in a
+     * shared header since this is a diagnostic-only addition to vendored
+     * code, not a real dependency. */
+    extern volatile UINT DiagTlsSubStep;
+
+    /* Get the protection.
+     *
+     * PATCHED (ProjetER): same fix as nx_secure_tls_session_start.c (search
+     * "PATCHED (ProjetER)") -- bounded by wait_option instead of
+     * TX_WAIT_FOREVER. First thing this function does, nothing touched
+     * yet, so bailing here is clean. */
+    if (tx_mutex_get(&_nx_secure_tls_protection, wait_option) != TX_SUCCESS)
+    {
+        return(NX_NOT_SUCCESSFUL);
+    }
 
     /* Access the internal TCP socket handle in our TLS socket. */
     tcp_socket = tls_session -> nx_secure_tls_tcp_socket;
@@ -124,6 +139,7 @@ UCHAR          handshake_finished = NX_FALSE;
         /* Process all records in the packet we received - decrypt, authenticate, and
          * strip TLS record header/footer, placing data in the return packet.
          */
+        DiagTlsSubStep = 1U;
         status = _nx_secure_tls_process_record(tls_session, NX_NULL, &bytes_processed, wait_option);
     }
 
@@ -134,7 +150,9 @@ UCHAR          handshake_finished = NX_FALSE;
         tx_mutex_put(&_nx_secure_tls_protection);
 
         /* Receive a packet over the TCP connection. */
+        DiagTlsSubStep = 2U;
         status =  nx_tcp_socket_receive(tcp_socket, &packet_ptr, wait_option);
+        DiagTlsSubStep = 3U;
 
 
         if (status != NX_SUCCESS)
@@ -142,12 +160,34 @@ UCHAR          handshake_finished = NX_FALSE;
             return(status);
         }
 
-        /* Get the protection after nx_tcp_socket_receive. */
-        tx_mutex_get(&_nx_secure_tls_protection, TX_WAIT_FOREVER);
+        /* Get the protection after nx_tcp_socket_receive.
+         *
+         * PATCHED (ProjetER): the strongest suspect for the real-hardware
+         * hang this whole family of patches targets -- see the big comment
+         * above App_HTTP_Thread_Entry in app_netxduo.c. This is the
+         * re-acquire that runs right after successfully receiving the
+         * server's actual reply back off the wire (nx_tcp_socket_receive
+         * just above returned NX_SUCCESS), before decrypting it -- which
+         * matches the observed signature exactly: our own outgoing data
+         * already sent and ACKed (tcp_outstanding_bytes=0 in the
+         * diagnostic heartbeat), handshake already finished, then nothing
+         * -- consistent with getting the reply and hanging trying to
+         * re-lock the session to process it, not with still waiting on the
+         * network. Bounded by wait_option instead of TX_WAIT_FOREVER; on
+         * failure, packet_ptr (just received, not yet handed to anything
+         * else) is released here before returning, exactly the cleanup
+         * nx_secure_tls_packet_release would otherwise have been
+         * responsible for further down. */
+        if (tx_mutex_get(&_nx_secure_tls_protection, wait_option) != TX_SUCCESS)
+        {
+            nx_secure_tls_packet_release(packet_ptr);
+            return(NX_NOT_SUCCESSFUL);
+        }
 
         /* Process all records in the packet we received - decrypt, authenticate, and
          * strip TLS record header/footer, placing data in the return packet.
          */
+        DiagTlsSubStep = 4U;
         status = _nx_secure_tls_process_record(tls_session, packet_ptr, &bytes_processed, wait_option);
     }
 

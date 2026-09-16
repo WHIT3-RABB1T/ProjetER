@@ -101,8 +101,18 @@ ULONG                  trace_timestamp;
     /* If trace is enabled, insert this event into the trace buffer.  */
     NX_TRACE_IN_LINE_INSERT(NX_TRACE_TCP_SOCKET_RECEIVE, socket_ptr, 0, 0, 0, NX_TRACE_TCP_EVENTS, &trace_event, &trace_timestamp);
 
-    /* Get protection while we look at this socket.  */
-    tx_mutex_get(&(ip_ptr -> nx_ip_protection), TX_WAIT_FOREVER);
+    /* Get protection while we look at this socket.
+     *
+     * PATCHED (ProjetER): same fix, same reasoning as
+     * nx_tcp_socket_send_internal.c/nx_secure_tls_session_start.c (search
+     * "PATCHED (ProjetER)") -- bounded by the caller's own wait_option
+     * instead of TX_WAIT_FOREVER. First thing this function does past
+     * setting *packet_ptr = NX_NULL (already the correct "nothing
+     * received" value on any error return), so bailing here is clean. */
+    if (tx_mutex_get(&(ip_ptr -> nx_ip_protection), wait_option) != TX_SUCCESS)
+    {
+        return(NX_NOT_SUCCESSFUL);
+    }
 
     /* Determine if the socket is currently bound.  */
     if (!socket_ptr ->  nx_tcp_socket_bound_next)

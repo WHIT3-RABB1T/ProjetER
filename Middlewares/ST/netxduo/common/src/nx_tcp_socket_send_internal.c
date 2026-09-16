@@ -345,8 +345,35 @@ UINT            compute_checksum = 1;
         _nx_tcp_socket_state_wait(socket_ptr, NX_TCP_ESTABLISHED, wait_option);
     }
 
-    /* Obtain the IP mutex.  */
-    tx_mutex_get(&(ip_ptr -> nx_ip_protection), TX_WAIT_FOREVER);
+    /* Obtain the IP mutex.
+     *
+     * PATCHED (ProjetER): this was tx_mutex_get(&(ip_ptr -> nx_ip_protection),
+     * TX_WAIT_FOREVER) -- ip_ptr->nx_ip_protection is the single mutex
+     * guarding this *entire* IP instance's internal state, shared across
+     * every socket and protocol on it, not just this one send. If it's ever
+     * left held elsewhere (same real-hardware failure class documented in
+     * nx_secure_tls_session_start.c's matching patch, and in the big
+     * comment above App_HTTP_Thread_Entry in app_netxduo.c), a hardcoded
+     * forever-wait here means this send call -- and the thread that made
+     * it -- simply never returns, no matter what wait_option it was given.
+     *
+     * This is the *first* thing this function does (nothing below has run
+     * yet: no queue/window state touched, packet_ptr untouched and not yet
+     * owned by this call), so bounding it by the caller's own wait_option
+     * and bailing out here is a clean, side-effect-free early return --
+     * exactly the same shape as the NX_NOT_CONNECTED path a few lines down,
+     * which also just releases (or here, never acquired) the mutex and
+     * returns without consuming packet_ptr. The caller (this file's own
+     * nx_web_http_client_put_packet, ultimately) already treats any
+     * non-NX_SUCCESS return as "release the packet, tear the connection
+     * down, reconnect next round" -- see App_HTTP_Thread_Entry. As with the
+     * TLS-side patch, this does not release the mutex from whoever's
+     * actually holding it; it only stops this caller from hanging forever
+     * waiting on it too. */
+    if (tx_mutex_get(&(ip_ptr -> nx_ip_protection), wait_option) != TX_SUCCESS)
+    {
+        return(NX_NOT_SUCCESSFUL);
+    }
 
     /* Check for the socket being in an established state.  */
     if ((socket_ptr -> nx_tcp_socket_state != NX_TCP_ESTABLISHED) && (socket_ptr -> nx_tcp_socket_state != NX_TCP_CLOSE_WAIT))
@@ -811,8 +838,33 @@ UINT            compute_checksum = 1;
             }
 #endif /* NX_ENABLE_INTERFACE_CAPABILITY */
 
-            /* Place protection while we check the sequence number for the new TCP packet.  */
-            tx_mutex_get(&(ip_ptr -> nx_ip_protection), TX_WAIT_FOREVER);
+            /* Place protection while we check the sequence number for the new TCP packet.
+             *
+             * PATCHED (ProjetER): same fix, same reasoning as the entry
+             * acquisition earlier in this function (search "PATCHED
+             * (ProjetER)") -- bounded by wait_option instead of
+             * TX_WAIT_FOREVER. Unlike the entry acquisition, send_packet is
+             * already fully built by this point (either a fresh segmented
+             * copy, or packet_ptr itself passed straight through) -- on
+             * failure it's released the same way the very next branch below
+             * already releases it for a different reason (sequence
+             * changed), then preemption is restored if this call had
+             * bumped it, and the whole send fails cleanly instead of
+             * hanging the caller forever. */
+            if (tx_mutex_get(&(ip_ptr -> nx_ip_protection), wait_option) != TX_SUCCESS)
+            {
+                if (send_packet != packet_ptr)
+                {
+                    _nx_packet_release(send_packet);
+                }
+
+                if (preempted == NX_TRUE)
+                {
+                    tx_thread_preemption_change(_tx_thread_current_ptr, old_threshold, &old_threshold);
+                }
+
+                return(NX_NOT_SUCCESSFUL);
+            }
 
             /* Determine if the sequence number is the same.  */
             if (sequence_number != socket_ptr -> nx_tcp_socket_tx_sequence)
@@ -829,8 +881,24 @@ UINT            compute_checksum = 1;
                     _nx_packet_release(send_packet);
                 }
 
-                /* Regain exclusive access to IP instance. */
-                tx_mutex_get(&(ip_ptr -> nx_ip_protection), TX_WAIT_FOREVER);
+                /* Regain exclusive access to IP instance.
+                 *
+                 * PATCHED (ProjetER): bounded the same way as above --
+                 * send_packet is already released by this point (just
+                 * above), so on failure there's nothing left to clean up
+                 * beyond restoring preemption; can't fall through to
+                 * `continue` without the mutex actually held, since the top
+                 * of this for(;;) loop assumes it is, so this returns an
+                 * error directly instead. */
+                if (tx_mutex_get(&(ip_ptr -> nx_ip_protection), wait_option) != TX_SUCCESS)
+                {
+                    if (preempted == NX_TRUE)
+                    {
+                        tx_thread_preemption_change(_tx_thread_current_ptr, old_threshold, &old_threshold);
+                    }
+
+                    return(NX_NOT_SUCCESSFUL);
+                }
                 continue;
             }
 

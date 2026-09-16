@@ -378,10 +378,36 @@ static HAL_StatusTypeDef Receive(SPI_HandleTypeDef *hspi, uint8_t *rxdata, uint1
 }
 
 
+/* PATCHED (ProjetER): process_txrx_poll()'s buffer-wait loop below used to
+ * be `while (netb == NULL)` with no bound at all -- if MX_NET_BUFFER_ALLOC
+ * (the shared AppPool, used by both this driver and the application's own
+ * TLS/HTTP traffic) is ever exhausted right when this runs, it looped
+ * forever, each iteration only DELAY_MS(1) apart (tx_thread_relinquish(),
+ * a same-priority yield -- it does NOT let a lower-priority thread run).
+ * This function's own task runs at MX_WIFI_SPI_THREAD_PRIORITY ==
+ * OSPRIORITYREALTIME (see mx_wifi_conf.h), the highest priority in this
+ * app, so a genuine stall here starves every lower-priority thread --
+ * including AppHTTPThread -- indefinitely, no matter how well-bounded
+ * *its own* waits are (its mutex/receive timeouts can expire and mark it
+ * ready, but it never actually gets the CPU back). Confirmed on real
+ * hardware: a diagnostic heartbeat running from ThreadX's own
+ * system-timer context kept firing exactly on schedule throughout a 4+
+ * second freeze of AppHTTPThread -- proof the RTOS tick itself was fine
+ * and nothing else was blocked on a timeout; only a higher-priority spin
+ * explains that combination. Only the hardware IWDG watchdog (an
+ * independent peripheral, not scheduled by ThreadX at all) ever recovered
+ * from it. Bounded below instead: give up after this many misses and skip
+ * the poll cycle (netb stays NULL, static, so the *next* call just tries
+ * again -- same as it always could mid-run, e.g. after the
+ * successful-receive path at the bottom of this function sets netb back
+ * to NULL for the next packet). */
+#define MX_NET_BUFFER_ALLOC_RETRY_LIMIT 500U
+
 void process_txrx_poll(uint32_t timeout)
 {
   static mx_buf_t *netb = NULL;
   bool first_miss = true;
+  uint32_t alloc_retries = 0U;
 
   MX_WIFI_SPI_CS_HIGH();
 
@@ -393,6 +419,13 @@ void process_txrx_poll(uint32_t timeout)
 
     if (netb == NULL)
     {
+      if (++alloc_retries >= MX_NET_BUFFER_ALLOC_RETRY_LIMIT)
+      {
+        DEBUG_ERROR("process_txrx_poll: giving up waiting for a free buffer "
+                     "after %lu retries -- skipping this poll cycle\n",
+                     (unsigned long)alloc_retries);
+        return;
+      }
       DELAY_MS(1);
       if (true == first_miss)
       {
@@ -570,6 +603,37 @@ void process_txrx_poll(uint32_t timeout)
 }
 
 
+/* PATCHED (ProjetER): this task's own poll used to pass WAIT_FOREVER
+ * (0xFFFFFFFF, ThreadX's TX_WAIT_FOREVER) straight into process_txrx_poll(),
+ * which forwards that same value, unchanged, into every wait inside it --
+ * SEM_WAIT(SpiTxRxSem, timeout), wait_flow_high(timeout)'s own
+ * SEM_WAIT(SpiFlowRiseSem, timeout), and TransmitReceive(..., timeout).
+ * DMA_ON_USE is not defined anywhere in this project's actual config (only
+ * in an unused mx_wifi_conf_template.h), so TransmitReceive() takes the
+ * #else branch: HAL_SPI_TransmitReceive(hspi, txdata, rxdata, datalen,
+ * timeout) in polling mode. ST's HAL polling implementation busy-waits on
+ * SPI status flags in a straight-line loop -- it never calls into the RTOS
+ * scheduler. this task runs at MX_WIFI_SPI_THREAD_PRIORITY ==
+ * OSPRIORITYREALTIME (the highest priority in this app -- see
+ * process_txrx_poll()'s own comment above for the buffer-alloc-loop half of
+ * this same starvation story), so if the EMW3080 module ever fails to
+ * complete one of these low-level SPI transactions -- a real bus/companion-
+ * chip level stall, not a software bug -- this thread would spin inside HAL
+ * forever, consuming the CPU with no RTOS involvement at all. That explains
+ * a real-hardware capture where AppHTTPThread froze at tls_substep=2 with
+ * the packet pool NOT exhausted (pool free=31/32 in both heartbeats) --
+ * ruling out the buffer-alloc loop this time -- while the diagnostic
+ * heartbeat (driven by ThreadX's own timer-tick processing, which keeps
+ * running from interrupt context regardless of what the scheduler is doing)
+ * kept firing exactly on schedule throughout. Every failure path for a
+ * bounded wait here already exists and is handled gracefully (logs an
+ * error, skips this poll cycle -- see wait_flow_high()'s and
+ * TransmitReceive()'s callers above); it just never got the chance to run
+ * because the wait was unbounded. Bounded below instead: a generous
+ * timeout for what should be a sub-millisecond SPI transaction under
+ * normal operation, self-healing on the very next loop iteration. */
+#define MX_WIFI_SPI_POLL_TIMEOUT_MS 500U
+
 #ifndef MX_WIFI_BARE_OS_H
 static void mx_wifi_spi_txrx_task(THREAD_CONTEXT_TYPE argument)
 {
@@ -579,7 +643,7 @@ static void mx_wifi_spi_txrx_task(THREAD_CONTEXT_TYPE argument)
 
   while (SPITxRxTaskQuitFlag != true)
   {
-    process_txrx_poll(WAIT_FOREVER);
+    process_txrx_poll(MX_WIFI_SPI_POLL_TIMEOUT_MS);
   }
 
   SPITxRxTaskQuitFlag = false;

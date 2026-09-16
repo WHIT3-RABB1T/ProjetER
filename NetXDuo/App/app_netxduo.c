@@ -77,6 +77,47 @@ static TX_TIMER DiagHeartbeatTimer;
 static volatile ULONG DiagHeartbeatT0;
 static volatile ULONG DiagHeartbeatTicks;
 
+/* Which blocking call within the current round AppHTTPThread is currently
+ * inside, stamped immediately before each one and read by
+ * diag_heartbeat_entry() below -- added after the vendored mutex patches
+ * (search "PATCHED (ProjetER)" in Middlewares/ST/netxduo) still didn't stop
+ * a real-hardware hang: the previous heartbeat only reported pool/TCP/TLS
+ * *state*, which was identical (tcp_state=ESTABLISHED, outstanding=0,
+ * tls_client_state=HANDSHAKE_FINISHED) whether the thread was about to
+ * call request_packet_allocate, put_packet, or was inside the response-read
+ * loop, so a real capture couldn't actually distinguish which of those was
+ * the one still blocked past its own timeout. This closes that gap: if it
+ * happens again, the heartbeat line names the exact call. */
+static const CHAR *RoundStep = "idle";
+
+/* Finer-grained sibling of RoundStep, stamped from *inside*
+ * nx_secure_tls_session_receive_records.c (search "PATCHED (ProjetER)
+ * diag" there) -- added after two rounds of targeted mutex patches at the
+ * most likely spots (nx_tcp_socket_receive.c, this same vendored file)
+ * demonstrably did NOT change a real-hardware hang that still freezes at
+ * step=response_body_get for 4+ seconds straight into an IWDG reset, with
+ * "POST response read failed" never printing -- proof the call never
+ * returns even once, so the actual block is somewhere neither patched
+ * mutex acquisition, most likely inside _nx_secure_tls_process_record()
+ * (entirely unaudited so far) or reached via the tls_session's leftover
+ * nx_secure_record_queue_header path that skips both patched call sites
+ * entirely. Values, in the order they'd be hit: 1 = about to process a
+ * leftover queued record (no fresh receive this call), 2 = about to call
+ * nx_tcp_socket_receive, 3 = returned from it, about to re-acquire
+ * _nx_secure_tls_protection (already patched -- if the freeze is here, the
+ * mutex patch should have already caught it, so seeing 3 stick past a few
+ * hundred ms yet the round still ultimately hangs would itself be a
+ * surprise worth reporting), 4 = about to process a freshly-received
+ * record. Whichever value is stuck when the next hang happens tells us
+ * exactly which of these four the current guesswork hasn't covered yet.
+ *
+ * Deliberately NOT static: nx_secure_tls_session_receive_records.c writes
+ * to this via its own `extern volatile UINT DiagTlsSubStep;` declaration --
+ * static linkage would make this symbol invisible outside this
+ * translation unit and fail to link (as it did on the first attempt:
+ * "undefined reference to `DiagTlsSubStep'"). */
+volatile UINT DiagTlsSubStep = 0;
+
 /* Watchdog safety net: real-hardware testing surfaced the NetX/TLS stack
  * occasionally wedging *indefinitely* mid-request -- observed stuck at
  * tls_client_state SERVERHELLO_DONE (mid-RSA, no forward progress), and
@@ -99,8 +140,30 @@ static volatile ULONG DiagHeartbeatTicks;
  * without a compiler/debugger on real hardware), every future handshake
  * blocks on it forever, completely bypassing whatever wait_option this
  * file passes in -- which is exactly why shortening it to 8s upstream
- * had no effect on this particular failure mode. Not something fixable
- * from application code short of patching vendored middleware blind.
+ * had no effect on this particular failure mode.
+ *
+ * PATCHED, both this and the sibling case below (nx_secure_tls_session_start.c
+ * / nx_tcp_socket_send_internal.c, both in Middlewares/ST/netxduo -- search
+ * "PATCHED (ProjetER)" in each): the specific tx_mutex_get(..., TX_WAIT_FOREVER)
+ * that's the very first thing each of those two functions does now uses the
+ * caller's own wait_option instead, and returns NX_NOT_SUCCESSFUL if it
+ * can't get the mutex in that time -- a clean, side-effect-free early
+ * return in both cases, since nothing has touched tls_session/packet_ptr
+ * yet at that point. This does NOT fix whatever leaves the mutex held in
+ * the first place (still unknown -- no visibility into that without a
+ * debugger on real hardware) and does NOT help the *deeper* mid-function
+ * tx_mutex_get(TX_WAIT_FOREVER) reacquisitions further into
+ * _nx_tcp_socket_send_internal(), left untouched deliberately: unwinding
+ * those safely needs understanding exactly what partial state each one
+ * follows, which wasn't done here. What it does fix: this thread no longer
+ * hangs *forever* waiting on a mutex someone else is holding -- it fails
+ * within a bounded time instead, which the app-level retry/reconnect logic
+ * below already knows how to handle without needing the watchdog's full
+ * board reset. If the mutex is genuinely leaked forever (not just held for
+ * a long-but-bounded stretch), every following round will keep failing
+ * fast rather than ever reconnecting -- still an improvement (fast+visible
+ * beats a silent hang), but not a full fix for that underlying case; the
+ * watchdog reset below remains the backstop for it.
  *
  * A sibling of that same bug class, found later by reading a serial log
  * where the (now full-round, see the comment above App_HTTP_Thread_Entry)
@@ -557,9 +620,9 @@ static VOID diag_heartbeat_entry(ULONG id)
 
     nx_packet_pool_info_get(&AppPool, &total, &free, &empty_requests, &empty_suspensions, &invalid_releases);
 
-    printf("[heartbeat #%lu, t+%lu ms] pool free=%lu/%lu (empty_req=%lu, empty_susp=%lu) "
+    printf("[heartbeat #%lu, t+%lu ms, step=%s, tls_substep=%u] pool free=%lu/%lu (empty_req=%lu, empty_susp=%lu) "
            "tcp_state=%u tcp_outstanding_bytes=%lu tls_client_state=%s\r\n",
-           DiagHeartbeatTicks, elapsed_ms, free, total, empty_requests, empty_suspensions,
+           DiagHeartbeatTicks, elapsed_ms, RoundStep, DiagTlsSubStep, free, total, empty_requests, empty_suspensions,
            (unsigned)HttpClient.nx_web_http_client_socket.nx_tcp_socket_state,
            HttpClient.nx_web_http_client_socket.nx_tcp_socket_tx_outstanding_bytes,
            tls_client_state_name(HttpClient.nx_web_http_client_tls_session.nx_secure_tls_client_state));
@@ -1027,6 +1090,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
          * from whenever the previous, successful round happened to
          * finish. */
         WatchdogLastProgressTick = tx_time_get();
+        RoundStep = "idle";
 
         /* Read every sensor that's up into one combined JSON body --
          * see sensors.h. Content-Length has to be known up front for
@@ -1114,6 +1178,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
             DiagHeartbeatTicks = 0;
             tx_timer_change(&DiagHeartbeatTimer, 2 * TX_TIMER_TICKS_PER_SECOND, 2 * TX_TIMER_TICKS_PER_SECOND);
             tx_timer_activate(&DiagHeartbeatTimer);
+            RoundStep = "post_secure_start";
             ret = nx_web_http_client_post_secure_start(&HttpClient, &server_ip_address, HTTP_SERVER_HTTPS_PORT,
                                                         HTTP_RESOURCE, ServerHost, NX_NULL, NX_NULL,
                                                         body_len, tls_setup_callback, 8 * NX_IP_PERIODIC_RATE);
@@ -1163,6 +1228,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                  * connection is up, and it's a local pool operation with
                  * no network wait really needed, so 2s is already
                  * generous. */
+                RoundStep = "request_packet_allocate";
                 ret = nx_web_http_client_request_packet_allocate(&HttpClient, &send_packet,
                                                                   HTTP_SEND_TIMEOUT_TICKS);
                 if (ret != NX_SUCCESS)
@@ -1196,6 +1262,7 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                      * check above, so it reuses it, and this is where that
                      * false confidence actually gets tested against the
                      * network. */
+                    RoundStep = "put_packet";
                     ret = nx_web_http_client_put_packet(&HttpClient, send_packet,
                                                         HTTP_SEND_TIMEOUT_TICKS);
                     if (ret != NX_SUCCESS)
@@ -1217,10 +1284,31 @@ static VOID App_HTTP_Thread_Entry(ULONG thread_input)
                          * took to finally time out. */
                         get_status = NX_SUCCESS;
                         waited = 0;
+                        RoundStep = "response_body_get";
                         while (get_status != NX_WEB_HTTP_GET_DONE)
                         {
                             get_status = nx_web_http_client_response_body_get(&HttpClient, &receive_packet,
                                                                                RESPONSE_POLL_TICKS);
+
+                            /* This call just returned control to us -- genuine
+                             * forward progress, whether or not it actually had
+                             * data -- so stamp it, same fix already applied to
+                             * Discover_ServerIP()'s own retry loop (see its
+                             * comment). Without this, RESPONSE_TIMEOUT_TICKS's
+                             * own legitimate 5s budget for a slow-but-fine
+                             * reply always loses the race against
+                             * WATCHDOG_STALE_TICKS's 3s -- observed on real
+                             * hardware (round #1909: tcp_outstanding_bytes
+                             * staying nonzero, i.e. genuinely still waiting on
+                             * a real ACK/reply, not stuck in any single call)
+                             * getting IWDG-reset at ~4s, well before this
+                             * loop's own 5s ceiling could ever fire its
+                             * normal, software-only "resetting connection for
+                             * next round" recovery. A call that never returns
+                             * at all (the actual deadlock class the watchdog
+                             * exists for) still won't reach this line, so it's
+                             * still caught. */
+                            WatchdogLastProgressTick = tx_time_get();
 
                             if (get_status == NX_NO_PACKET && !ConnectionIsIdle() && waited < RESPONSE_TIMEOUT_TICKS)
                             {
