@@ -641,7 +641,7 @@ class Handler(BaseHTTPRequestHandler):
         with _state_lock:
             sample = _live_crypto_sample
         payload = json.dumps(sample if sample else {
-            "error": "no board connection captured yet since this server started",
+            "error": "aucune connexion de la carte capturée depuis le démarrage de ce serveur",
         }).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

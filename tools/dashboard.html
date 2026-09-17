@@ -101,7 +101,7 @@
     margin: 0;
     letter-spacing: 0.2px;
   }
-  h1 span { color: var(--text-dim); font-weight: 400; }
+  #source { color: var(--text-dim); font-size: 14px; font-family: var(--mono); }
   #status {
     display: flex;
     align-items: center;
@@ -125,18 +125,18 @@
   #status.stale .dot { background: var(--warn); }
   #grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 22px;
   }
   .card {
     background: var(--panel);
     border: 1px solid var(--panel-border);
-    border-radius: 12px;
-    padding: 16px 18px;
-    min-height: 108px;
+    border-radius: 16px;
+    padding: 26px 28px;
+    min-height: 180px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 16px;
     transition: opacity 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
     cursor: pointer;
   }
@@ -146,18 +146,15 @@
   .card-title {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
+    justify-content: center;
   }
-  .card-title .icon { font-size: 16px; }
+  .card-title .icon { font-size: 34px; }
   .card-body {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
   }
   .metric {
     display: flex;
@@ -166,38 +163,26 @@
     gap: 10px;
     font-family: var(--mono);
   }
-  .metric .label { color: var(--text-dim); font-size: 12px; }
-  .metric .value { font-size: 18px; font-weight: 600; }
-  .metric .unit { color: var(--text-dim); font-size: 12px; margin-left: 4px; font-weight: 400; }
+  .metric .label { color: var(--text-dim); font-size: 14px; }
+  .metric .value { font-size: 28px; font-weight: 600; }
+  .metric .unit { color: var(--text-dim); font-size: 14px; margin-left: 4px; font-weight: 400; }
   .axis-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 10px;
     font-family: var(--mono);
   }
   .axis-row .axis {
     background: rgba(255,255,255,0.03);
     border-radius: 8px;
-    padding: 6px 8px;
+    padding: 10px 8px;
     text-align: center;
   }
-  .axis-row .axis .k { color: var(--text-dim); font-size: 11px; display: block; }
-  .axis-row .axis .v { font-size: 15px; font-weight: 600; }
+  .axis-row .axis .k { color: var(--text-dim); font-size: 12px; display: block; }
+  .axis-row .axis .v { font-size: 22px; font-weight: 600; }
   .placeholder {
     color: var(--text-dim);
-    font-size: 13px;
-    font-style: italic;
-  }
-  footer {
-    margin-top: 28px;
-    color: var(--text-dim);
-    font-size: 12px;
-  }
-  footer code {
-    font-family: var(--mono);
-    background: var(--panel);
-    padding: 1px 5px;
-    border-radius: 4px;
+    font-size: 20px;
   }
 
   .modal-overlay {
@@ -290,21 +275,6 @@
   }
 
   .crypto h1 { margin-bottom: 16px; }
-  .crypto-live {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 12px;
-    padding: 16px 20px;
-    margin-bottom: 18px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 24px;
-    align-items: center;
-  }
-  .crypto-live .field { display: flex; flex-direction: column; gap: 2px; }
-  .crypto-live .field .k { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .crypto-live .field .v { font-family: var(--mono); font-size: 15px; font-weight: 600; }
-  .crypto-live .field .v.dim { color: var(--text-dim); font-weight: 400; font-style: italic; font-size: 13px; }
 
   .crypto-section {
     background: var(--panel);
@@ -324,35 +294,31 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-  .crypto-section .caption { color: var(--text-dim); font-size: 11.5px; margin: 8px 0 0; }
+  .crypto-section .caption { color: var(--text-dim); font-size: 13px; margin: 12px 0 0; }
 
-  .suite-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .suite-table th, .suite-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--panel-border); }
-  .suite-table th { color: var(--text-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
-  .suite-table td { font-family: var(--mono); font-size: 12.5px; }
-  .suite-table .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: -apple-system, sans-serif; font-weight: 600; }
-  .badge.board { background: rgba(77,163,255,0.18); color: var(--accent); }
-  .badge.browser { background: rgba(62,207,142,0.18); color: var(--ok); }
-
-  .codec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  /* codec-section: the Ciphertext/Plaintext panel is the only thing left
+     on this tab, so it's sized to actually use the freed-up space rather
+     than sitting at its old small-panel-among-many size. */
+  .codec-section { padding: 26px 30px; }
+  .codec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   @media (max-width: 900px) { .codec-grid { grid-template-columns: 1fr; } }
-  .codec-panel { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .codec-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .codec-panel .label {
-    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
     display: flex; align-items: center; gap: 6px;
   }
   .codec-panel.cipher .label { color: var(--bad); }
   .codec-panel.plain .label { color: var(--ok); }
-  .codec-panel .meta { color: var(--text-dim); font-size: 11px; font-family: var(--mono); }
-  .hexdump, .pem-block, .jsonblock {
+  .codec-panel .meta { color: var(--text-dim); font-size: 12.5px; font-family: var(--mono); }
+  .hexdump, .jsonblock {
     background: #0b0d11;
     border: 1px solid var(--panel-border);
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 16px 18px;
     font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.6;
-    max-height: 260px;
+    font-size: 14px;
+    line-height: 1.7;
+    max-height: 70vh;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-all;
@@ -362,54 +328,6 @@
   .hexdump .byte:nth-child(4n+1) { color: #ff9d9d; }
   .jsonblock { color: var(--ok); white-space: pre; }
   .jsonblock .k { color: #7fd6ff; }
-
-  .kv-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 13px; }
-  .kv-grid dt { color: var(--text-dim); }
-  .kv-grid dd { margin: 0; font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
-
-  .key-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
-  @media (max-width: 900px) { .key-cards { grid-template-columns: 1fr; } }
-  .key-card {
-    background: #0b0d11;
-    border: 1px solid var(--panel-border);
-    border-radius: 8px;
-    padding: 14px 16px;
-  }
-  .key-card .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 8px; }
-  .key-card .redacted { color: var(--warn); font-size: 12px; margin: 10px 0 0; }
-  .key-card .note { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; margin: 0; }
-  .crypto-section code, .key-card code {
-    font-family: var(--mono); background: rgba(255,255,255,0.06); padding: 1px 5px;
-    border-radius: 4px; color: var(--text); font-size: 0.92em;
-  }
-
-  details.pem-toggle summary { cursor: pointer; color: var(--accent); font-size: 12px; margin-top: 8px; user-select: none; }
-
-  .seq-diagram {
-    display: grid;
-    grid-template-columns: 110px 1fr 110px;
-    row-gap: 22px;
-    align-items: center;
-    padding: 6px 0 4px;
-    min-height: 60px;
-  }
-  .seq-lifeline { width: 2px; background: var(--panel-border); justify-self: center; }
-  .seq-lane-label {
-    justify-self: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px;
-    color: var(--text-dim); background: var(--panel); padding: 5px 10px;
-    border: 1px solid var(--panel-border); border-radius: 6px; z-index: 1;
-  }
-  .seq-arrow-wrap {
-    position: relative; z-index: 1;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-  }
-  .seq-arrow-wrap .lbl { font-size: 11.5px; font-family: var(--mono); font-weight: 600; background: var(--panel); padding: 0 6px; white-space: nowrap; }
-  .seq-arrow-wrap .line { position: relative; width: 100%; height: 10px; }
-  .seq-arrow-wrap .line .shaft { position: absolute; top: 4px; left: 0; right: 0; height: 2px; background: var(--arrow-color); }
-  .seq-arrow-wrap .line .head { position: absolute; top: 0; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-  .seq-arrow-wrap.c2s .line .head { right: -1px; border-left: 8px solid var(--arrow-color); }
-  .seq-arrow-wrap.s2c .line .head { left: -1px; border-right: 8px solid var(--arrow-color); }
-  .seq-arrow-wrap .meta { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
 
   /* ---- Demo tab: live 3D orientation ---- */
   .demo-layout {
@@ -424,7 +342,7 @@
     border-radius: 12px;
     flex: 1;
     min-width: 320px;
-    height: 420px;
+    height: 640px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -444,7 +362,7 @@
             mask-image: radial-gradient(ellipse 70% 60% at 50% 55%, #000 40%, transparent 78%);
   }
   .demo-scene {
-    perspective: 900px;
+    perspective: 1200px;
     width: 100%;
     height: 100%;
     display: flex;
@@ -461,13 +379,24 @@
        itself below. Without this, the board's identity orientation
        (perfectly flat, matching the real board resting flat on a desk)
        would render as a flat card facing the viewer head-on instead of
-       looking like a board lying on a table in front of them. */
-    transform: rotateX(55deg) rotateZ(-18deg);
+       looking like a board lying on a table in front of them.
+       No rotateZ() here (there used to be one, -18deg, purely for visual
+       flair): .demo-board's own live rotation is computed and applied in
+       its OWN local frame -- a pure X-axis board tilt is a clean rotation
+       about .demo-board's own local Y axis, edge-aligned with its own
+       rectangle -- but the CAMERA's rotateZ then re-spun that whole
+       already-tilted result for final display, so on screen the tilt's
+       hinge line was never level with the screen, making every tilt look
+       like it ran along the rectangle's diagonal instead of an edge, even
+       though the underlying rotation was perfectly clean. Dropping it
+       keeps the board's edges screen-aligned at rest, so an edge-aligned
+       tilt now visibly looks edge-aligned too. */
+    transform: rotateX(55deg);
   }
   .demo-board {
-    width: 260px;
-    height: 160px;
-    border-radius: 14px;
+    width: 360px;
+    height: 220px;
+    border-radius: 18px;
     background: linear-gradient(155deg, #1f2530, #12151c 60%, #0b0d12);
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.03);
@@ -486,22 +415,22 @@
   .demo-board::before {
     content: "";
     position: absolute;
-    top: 10px; left: 50%;
-    width: 10px; height: 10px;
+    top: 14px; left: 50%;
+    width: 13px; height: 13px;
     transform: translateX(-50%);
     border-radius: 999px;
     background: var(--bad);
     box-shadow: 0 0 10px 2px rgba(232,93,93,0.6);
   }
   .demo-board .chip {
-    width: 46px; height: 46px;
-    border-radius: 6px;
+    width: 62px; height: 62px;
+    border-radius: 8px;
     background: #05060a;
     border: 1px solid rgba(255,255,255,0.12);
   }
   .demo-board .label {
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: 13px;
     color: var(--text-dim);
     letter-spacing: 0.5px;
   }
@@ -628,7 +557,7 @@
      switches between a one-line button and a result row with a button
      of its own. */
   .game-speedrun-bar {
-    width: 520px;
+    width: 936px;
     min-height: 48px;
     margin-bottom: 10px;
     display: flex;
@@ -756,6 +685,24 @@
   }
   .fullscreen-big-btn:hover { background: linear-gradient(180deg, rgba(77,163,255,0.45), rgba(77,163,255,0.24)); }
   .fullscreen-best { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+  .fullscreen-mode-toggle { display: flex; gap: 10px; }
+  .fullscreen-mode-btn {
+    padding: 8px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    border-radius: 999px;
+    border: 1px solid var(--panel-border);
+    background: rgba(23,26,33,0.6);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .fullscreen-mode-btn:hover { border-color: rgba(77,163,255,0.4); }
+  .fullscreen-mode-btn.active {
+    border-color: rgba(77,163,255,0.6);
+    background: linear-gradient(180deg, rgba(77,163,255,0.35), rgba(77,163,255,0.18));
+    color: var(--text);
+  }
 </style>
 </head>
 <body>
@@ -765,7 +712,7 @@
   <button class="tab-btn active" data-tab="dashboard"><span class="icon">📊</span>Dashboard</button>
   <button class="tab-btn" data-tab="crypto"><span class="icon">🔒</span>Cryptography</button>
   <button class="tab-btn" data-tab="demo"><span class="icon">🧭</span>Demo</button>
-  <button class="tab-btn" data-tab="game"><span class="icon">🎮</span>Game</button>
+  <button class="tab-btn" data-tab="game"><span class="icon">🎮</span>Tilt</button>
   <button class="tab-btn" data-tab="apples"><span class="icon">🍎</span>Catch</button>
   <button class="tab-btn" data-tab="race"><span class="icon">🏎️</span>Race</button>
 </nav>
@@ -774,93 +721,26 @@
 
   <section id="tab-dashboard" class="tab-panel active">
     <header>
-      <h1>Board Sensor Dashboard <span id="source"></span></h1>
-      <div id="status"><span class="dot"></span><span id="status-text">waiting for first reading…</span></div>
+      <span id="source"></span>
+      <div id="status"><span class="dot"></span><span id="status-text"></span></div>
     </header>
 
     <div id="grid"><!-- cards injected by renderAll() --></div>
-
-    <footer>
-      Polling <code>/api/latest</code> every <span id="poll-interval-label"></span>. Click a card for its history.
-      Source: <code>Core/Src/sensors.c</code> (<code>Sensors_ReadAllJSON()</code>) via
-      <code>App_HTTP_Thread_Entry</code>'s HTTPS POST to <code>/sensors</code>.
-    </footer>
   </section>
 
   <section id="tab-crypto" class="tab-panel crypto">
-    <h1>🔒 Cryptography</h1>
+    <h1>🔒 Cryptographie</h1>
 
-    <div class="crypto-live">
-      <div class="field">
-        <span class="k">Board's last handshake</span>
-        <span class="v" id="crypto-live-summary">no TLS handshake observed from the board yet</span>
-      </div>
-      <div class="field">
-        <span class="k">Observed</span>
-        <span class="v dim" id="crypto-live-age">—</span>
-      </div>
-    </div>
-
-    <div class="crypto-section">
-      <h2>Cipher suites offered</h2>
-      <table class="suite-table">
-        <thead><tr><th>Suite</th><th>Key exchange</th><th>Bulk cipher</th><th>Integrity</th><th>Used by</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>TLS_RSA_WITH_AES_128_CBC_SHA256</td>
-            <td>Static RSA</td><td>AES-128-CBC</td><td>HMAC-SHA256</td>
-            <td><span class="badge board">board</span></td>
-          </tr>
-          <tr>
-            <td>TLS_RSA_WITH_AES_256_CBC_SHA256</td>
-            <td>Static RSA</td><td>AES-256-CBC</td><td>HMAC-SHA256</td>
-            <td><span class="badge board">board</span></td>
-          </tr>
-          <tr>
-            <td>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</td>
-            <td>ECDHE</td><td>AES-128-GCM</td><td>AEAD (built in)</td>
-            <td><span class="badge browser">browser</span></td>
-          </tr>
-          <tr>
-            <td>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</td>
-            <td>ECDHE</td><td>AES-256-GCM</td><td>AEAD (built in)</td>
-            <td><span class="badge browser">browser</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="crypto-section">
-      <h2>Ciphertext → Plaintext (live, most recent board connection)</h2>
+    <div class="crypto-section codec-section">
+      <h2>Texte chiffré → Texte en clair (en direct, dernière connexion de la carte)</h2>
       <div id="codec-body">
-        <div class="chart-empty">loading captured sample…</div>
-      </div>
-    </div>
-
-    <div class="crypto-section">
-      <h2>Handshake sequence (live, same connection as above)</h2>
-      <div id="seq-diagram" class="seq-diagram">
-        <div class="chart-empty">loading…</div>
-      </div>
-    </div>
-
-    <div class="crypto-section">
-      <h2>Certificate</h2>
-      <div id="cert-body">
-        <div class="chart-empty">loading certificate…</div>
-      </div>
-    </div>
-
-    <div class="crypto-section">
-      <h2>Key pair</h2>
-      <div id="key-body" class="key-cards">
-        <div class="chart-empty">loading key info…</div>
+        <div class="chart-empty">chargement de l'échantillon capturé…</div>
       </div>
     </div>
   </section>
 
   <section id="tab-demo" class="tab-panel">
-    <h1>🧭 Demo — Live Orientation</h1>
+    <h1>🧭 Démo — Orientation en direct</h1>
 
     <div class="demo-layout">
       <div class="demo-stage">
@@ -877,37 +757,39 @@
 
       <div class="demo-readout">
         <div class="axis-block">
-          <span class="k">Pitch</span>
+          <span class="k">Tangage</span>
           <span class="v" id="demo-pitch">0.0°</span>
-          <span class="src">accelerometer</span>
+          <span class="src">accéléromètre</span>
         </div>
         <div class="axis-block">
-          <span class="k">Roll</span>
+          <span class="k">Roulis</span>
           <span class="v" id="demo-roll">0.0°</span>
-          <span class="src">accelerometer</span>
+          <span class="src">accéléromètre</span>
         </div>
         <div class="axis-block">
-          <span class="k">Yaw</span>
+          <span class="k">Lacet</span>
           <span class="v" id="demo-yaw">0.0°</span>
-          <span class="src">gyroscope (integrated)</span>
+          <span class="src">gyroscope (intégré)</span>
         </div>
-        <button id="demo-align-start" class="demo-btn">🖐 Align to board</button>
+        <button id="demo-align-start" class="demo-btn">🖐 Aligner sur la carte</button>
         <div id="demo-align-controls" class="demo-btn-row" hidden>
-          <button id="demo-align-confirm" class="demo-btn demo-btn-confirm">✓ Set</button>
-          <button id="demo-align-cancel" class="demo-btn demo-btn-cancel">✕ Cancel</button>
+          <button id="demo-align-confirm" class="demo-btn demo-btn-confirm">✓ Valider</button>
+          <button id="demo-align-cancel" class="demo-btn demo-btn-cancel">✕ Annuler</button>
         </div>
-        <button id="demo-recenter" class="demo-btn demo-btn-ghost">Reset</button>
+        <button id="demo-recenter" class="demo-btn demo-btn-ghost">Réinitialiser</button>
         <p class="demo-note">
-          Tilt (pitch/roll) comes straight from the accelerometer's gravity
-          vector. Turn (yaw) is the gyroscope's rotation rate integrated
-          over time, so it drifts slowly the longer it runs. Use
-          <b>Align to board</b> to drag the model until it matches the
-          real board's current angle; <b>Reset</b> clears both the yaw
-          drift and any alignment set this way.
+          L'inclinaison (tangage/roulis) vient directement du vecteur de
+          gravité de l'accéléromètre. La rotation (lacet) est la vitesse de
+          rotation du gyroscope intégrée dans le temps, elle dérive donc
+          lentement plus la démo tourne longtemps. Utilisez
+          <b>Aligner sur la carte</b> pour faire glisser le modèle jusqu'à
+          ce qu'il corresponde à l'angle réel de la carte ;
+          <b>Réinitialiser</b> efface à la fois la dérive du lacet et tout
+          alignement défini de cette façon.
         </p>
         <p class="demo-note" id="demo-align-hint" hidden>
-          Drag the board above until it matches the physical board, then
-          click <b>Set</b>.
+          Faites glisser la carte ci-dessus jusqu'à ce qu'elle corresponde
+          à la carte physique, puis cliquez sur <b>Valider</b>.
         </p>
       </div>
     </div>
@@ -929,7 +811,7 @@
             <button id="speedrun-restart" class="demo-btn demo-btn-confirm">Run it back</button>
           </div>
         </div>
-        <canvas id="game-canvas" width="520" height="360"></canvas>
+        <canvas id="game-canvas" width="936" height="648"></canvas>
       </div>
 
       <div class="game-panel">
@@ -949,24 +831,6 @@
         <p class="demo-note" id="game-status">
           Tilt the board to roll the ball into the green exit.
         </p>
-        <p class="demo-note">
-          Uses the accelerometer's two in-plane axes (whichever edge of
-          the board dips down is "downhill" for the ball) and the blue
-          button to reset -- press it any time, mid-maze or after
-          winning, for a freshly generated (always solvable) maze. If
-          left/right or up/down comes out backwards on your real board,
-          flip <code>GAME_TILT_INVERT_X</code> /
-          <code>GAME_TILT_INVERT_Y</code> near the top of this tab's
-          script.
-        </p>
-        <p class="demo-note">
-          <b>Speedrun</b>: hit the big button above for a 30-second timed
-          run -- every maze you finish instantly swaps in a new one, no
-          need to reset by hand, and your score is however many you
-          solve before time runs out. Reset and the physical button are
-          disabled for the duration so a stray press can't cut a run
-          short.
-        </p>
       </div>
     </div>
   </section>
@@ -984,13 +848,18 @@
     <div class="fullscreen-overlay" id="apples-start-overlay">
       <h1>🍎 Apple Catch</h1>
       <p>
-        Rock the board side to side (rotating it around its X axis) to
-        slide the basket left and right -- catch as many falling apples
-        as you can before you run out of lives. It speeds up the longer
-        you last. Every so often a spike slides across the floor from one
-        side -- press the board's button to jump over it, or it's instant
-        game over.
+        Tournez la carte à plat comme un volant (rotation autour de son
+        axe Z, comme dans l'onglet Course) pour faire glisser le panier à
+        gauche et à droite -- attrapez le plus de pommes possible avant de
+        perdre toutes vos vies. Le jeu accélère plus vous tenez longtemps.
+        Le mode Difficile ajoute un pic qui traverse le sol de temps en
+        temps -- appuyez sur le bouton de la carte pour sauter par-dessus,
+        sinon c'est game over instantané. Le mode Facile n'a aucun pic.
       </p>
+      <div class="fullscreen-mode-toggle">
+        <button class="fullscreen-mode-btn apples-mode-btn" data-mode="easy">Easy</button>
+        <button class="fullscreen-mode-btn apples-mode-btn" data-mode="hard">Hard</button>
+      </div>
       <button id="apples-start-btn" class="fullscreen-big-btn">▶ Start</button>
       <p class="fullscreen-best" id="apples-best-display">Best: —</p>
     </div>
@@ -998,6 +867,10 @@
     <div class="fullscreen-overlay" id="apples-gameover-overlay" hidden>
       <h1>🍏 Game Over</h1>
       <p id="apples-final-score">You caught 0 apples.</p>
+      <div class="fullscreen-mode-toggle">
+        <button class="fullscreen-mode-btn apples-mode-btn" data-mode="easy">Easy</button>
+        <button class="fullscreen-mode-btn apples-mode-btn" data-mode="hard">Hard</button>
+      </div>
       <button id="apples-restart-btn" class="fullscreen-big-btn">↻ Play Again</button>
       <p class="fullscreen-best" id="apples-best-display-2">Best: —</p>
     </div>
@@ -1017,11 +890,11 @@
     <div class="fullscreen-overlay" id="race-start-overlay">
       <h1>🏎️ Race</h1>
       <p>
-        Turn the board flat like a steering wheel (rotating it around its
-        Z axis) to steer -- the car drives itself forward, your job is
-        just to keep it on the road through the curves. Drifting onto the
-        grass slows you down. Press the board's button any time to
-        restart the drive.
+        Tournez la carte à plat comme un volant (rotation autour de son
+        axe Z) pour diriger -- la voiture avance toute seule, votre
+        travail est simplement de la garder sur la route dans les
+        virages. Sortir sur l'herbe vous ralentit. Appuyez sur le bouton
+        de la carte à tout moment pour recommencer le trajet.
       </p>
       <button id="race-start-btn" class="fullscreen-big-btn">▶ Start Driving</button>
       <p class="fullscreen-best" id="race-best-display">Best distance: —</p>
@@ -1044,7 +917,6 @@
 
 <script>
 const POLL_MS = 500;
-document.getElementById("poll-interval-label").textContent = (POLL_MS / 1000) + "s";
 
 // One entry per sensor category the board can send (Sensors_Endpoints[] /
 // Sensors_ReadAllJSON() in Core/Src/sensors.c). `render` turns that
@@ -1053,9 +925,10 @@ document.getElementById("poll-interval-label").textContent = (POLL_MS / 1000) + 
 // same fallback spirit as CATEGORY_FORMATTERS on the Python side.
 // `series` describes what the chart view (click the card) plots: each
 // entry is a field of that category's value object, paired with a label
-// and a line color. A category with no `series` (ranging -- its value is
-// an array, not scalar fields) still opens the chart modal, just showing
-// a "nothing to plot" message instead of a graph.
+// and a line color. A category with no scalar fields to plot (its value
+// is an array, say) can still use an empty `series: []` -- the chart
+// modal still opens, just showing a "nothing to plot" message instead of
+// a graph.
 const CARDS = [
   { key: "temperature",   icon: "🌡️", title: "Temperature", unit: "°C", render: renderTemperature,
     series: [ { field: "hts221_c",   label: "HTS221",  color: "#4da3ff" },
@@ -1070,11 +943,9 @@ const CARDS = [
     series: axisSeries() },
   { key: "magnetometer",  icon: "🧭", title: "Magnetometer", unit: "mgauss", render: renderAxes("mgauss"),
     series: axisSeries() },
-  { key: "light",         icon: "💡", title: "Light", unit: "raw", render: renderLight,
+  { key: "light",         icon: "💡", title: "Light", unit: "", render: renderLight,
     series: [ { field: "als_raw",   label: "ALS",   color: "#4da3ff" },
               { field: "white_raw", label: "White", color: "#e8b339" } ] },
-  { key: "ranging",       icon: "📏", title: "Ranging", unit: "mm", render: renderRanging,
-    series: [] },
   { key: "button",        icon: "🔘", title: "Button", unit: "", render: renderButton,
     series: [ { field: "pressed", label: "Pressed", color: "#e85d5d" } ] },
 ];
@@ -1114,33 +985,27 @@ function renderAxes(unit) {
 }
 function renderLight(v) {
   if (v.als_raw === undefined) return renderGenericBody(v);
-  return metric("ALS", v.als_raw, "raw") + metric("White", v.white_raw, "raw");
-}
-function renderRanging(v) {
-  const zones = v.zones;
-  if (!Array.isArray(zones)) return renderGenericBody(v);
-  return metric("Zones", zones.length, "") +
-    `<div class="placeholder">${zones.join(", ")} mm</div>`;
+  return metric("ALS", v.als_raw, "") + metric("W", v.white_raw, "");
 }
 function renderButton(v) {
   if (v.pressed === undefined) return renderGenericBody(v);
   const pressed = !!v.pressed;
-  return `<div class="metric"><span class="label">${pressed ? "PRESSED" : "released"}</span>` +
+  return `<div class="metric"><span class="label"></span>` +
          `<span class="value">${pressed ? "🔵" : "⚪"}</span></div>`;
 }
 function renderGenericBody(v) {
   if (v === null || v === undefined) return "";
-  if (typeof v !== "object") return metric("value", v, "");
+  if (typeof v !== "object") return metric("", v, "");
   return Object.entries(v).map(([k, val]) => metric(k, val, "")).join("");
 }
 
 function cardHTML(def, value) {
   const empty = value === undefined;
   const body = empty
-    ? `<div class="placeholder">no data this round</div>`
+    ? `<div class="placeholder">–</div>`
     : def.render(value);
-  return `<div class="card ${empty ? "empty" : ""}" data-key="${def.key}">` +
-         `<div class="card-title"><span class="icon">${def.icon}</span>${def.title}</div>` +
+  return `<div class="card ${empty ? "empty" : ""}" data-key="${def.key}" title="${def.title}">` +
+         `<div class="card-title"><span class="icon">${def.icon}</span></div>` +
          `<div class="card-body">${body}</div></div>`;
 }
 
@@ -1153,7 +1018,7 @@ function renderAll(reading) {
   if (reading) {
     for (const key of Object.keys(reading)) {
       if (known.has(key)) continue;
-      html += `<div class="card" data-key="${key}"><div class="card-title"><span class="icon">❔</span>${key}</div>` +
+      html += `<div class="card" data-key="${key}" title="${key}"><div class="card-title"><span class="icon">❔</span></div>` +
               `<div class="card-body">${renderGenericBody(reading[key])}</div></div>`;
     }
   }
@@ -1170,24 +1035,22 @@ function updateStatus(source) {
   const el = document.getElementById("status");
   const text = document.getElementById("status-text");
   const sourceEl = document.getElementById("source");
-  sourceEl.textContent = source ? "— " + source : "";
+  sourceEl.textContent = source || "";
   if (lastUpdatedAt === null) {
     el.className = "";
-    text.textContent = "waiting for first reading…";
+    text.textContent = "…";
     return;
   }
   const ageMs = Date.now() - lastUpdatedAt;
   const ageS = (ageMs / 1000).toFixed(1);
   if (ageMs < 3000) {
     el.className = "live";
-    text.textContent = `live — updated ${ageS}s ago`;
   } else if (ageMs < 15000) {
     el.className = "stale";
-    text.textContent = `stale — last update ${ageS}s ago`;
   } else {
     el.className = "";
-    text.textContent = `no data for ${ageS}s — is the board still running?`;
   }
+  text.textContent = ageS + "s";
 }
 
 async function poll() {
@@ -1201,7 +1064,6 @@ async function poll() {
     }
     lastSource = data.source || null;
     updateStatus(lastSource);
-    updateCryptoLive(data.board_tls);
   } catch (e) {
     // Transient fetch failure (e.g. page loaded before the server was
     // ready) -- just let the next poll try again.
@@ -1403,34 +1265,14 @@ document.getElementById("sidebar").addEventListener("click", (e) => {
   activateTab(btn.dataset.tab);
 });
 
-// ---- Cryptography tab: live TLS parameters from the board's last handshake
-
-function updateCryptoLive(boardTls) {
-  const summary = document.getElementById("crypto-live-summary");
-  const age = document.getElementById("crypto-live-age");
-  if (!boardTls) {
-    summary.textContent = "no TLS handshake observed from the board yet";
-    summary.classList.add("dim");
-    age.textContent = "—";
-    return;
-  }
-  summary.classList.remove("dim");
-  summary.textContent = `${boardTls.version} / ${boardTls.cipher} (${boardTls.bits}-bit)`;
-  const ageS = ((Date.now() - boardTls.at_ms) / 1000).toFixed(1);
-  age.textContent = `${ageS}s ago`;
-}
-
-// ---- Cryptography tab: certificate/key info + a live captured exchange -
+// ---- Cryptography tab: a live captured exchange -----------------------
 //
-// Cert/key info is fetched once per tab-open (it only changes if someone
-// reruns gen_https_cert.sh by hand). The ciphertext/plaintext panel and
-// the handshake sequence diagram poll GET /api/crypto-sample every
+// The ciphertext/plaintext panel polls GET /api/crypto-sample every
 // second *while this tab is open* -- same start/stop-on-visibility
-// pattern as the chart modal's pollHistory() -- so they track whatever
-// the board's most recent real connection actually was, live.
+// pattern as the chart modal's pollHistory() -- so it tracks whatever the
+// board's most recent real connection actually was, live.
 
 let cryptoPollTimer = null;
-let certInfoLoaded = false;
 
 function escapeHTML(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1447,15 +1289,6 @@ function hexDump(hex, bytesPerRow) {
 }
 
 function enterCryptoTab() {
-  if (!certInfoLoaded) {
-    certInfoLoaded = true;
-    fetch("/api/cert-info", { cache: "no-store" })
-      .then(r => r.json())
-      .then(renderCertAndKey)
-      .catch(e => {
-        document.getElementById("cert-body").innerHTML = `<div class="chart-empty">couldn't load certificate info: ${escapeHTML(e)}</div>`;
-      });
-  }
   pollCryptoSample();
   clearInterval(cryptoPollTimer);
   cryptoPollTimer = setInterval(pollCryptoSample, 1000);
@@ -1502,6 +1335,35 @@ function leaveCryptoTab() {
 // around that same up axis, not gyro.x.
 const REST_UP = [0, 0, 1];
 
+// UM2839 (the board's own user manual) documents the ISM330DHCX only as
+// an I2C peripheral (address/interrupt pins) -- no axis-orientation
+// diagram for how it's mounted on this specific PCB, and the chip's own
+// datasheet package diagram can't fill that gap either since it doesn't
+// know the mounting rotation used on this board. REST_UP above already
+// settles which axis is "up" (Z, confirmed hands-on, see above). These
+// flip the *sign* of the remaining two tilt axes and the yaw rotation
+// sense on screen -- same one-line fix as every other GYRO_INVERT/
+// TILT_INVERT flag in this file. DEMO_YAW_INVERT was first set to true by
+// analogy with Apple Catch's APPLES_GYRO_INVERT (same gyro.z field) --
+// confirmed backwards the other way on a real board, so it's false here
+// instead. Tilt has no confirmed precedent yet (Tilt Maze's own
+// GAME_TILT_INVERT_X/Y are still untested too), so those stay false;
+// flip whichever axis looks backwards once there's a real board to check
+// the Demo tab against.
+const DEMO_YAW_INVERT = false;
+const DEMO_TILT_INVERT_X = false;
+const DEMO_TILT_INVERT_Y = false;
+
+// Confirmed on a real board: even with X/Y swapped above, the sensor's
+// horizontal plane sits a further 45 degrees off from this model's --
+// rather than rotating the sensor data itself, this just spins the
+// rendered rectangle by a fixed amount (see renderDemoBoard()), which is
+// the same fix applied more simply: everything drawn on screen (tilt,
+// yaw, manual alignment) ends up rotated by the same constant amount, so
+// their relative motion is unaffected -- only the fixed reference angle
+// the whole board sits at changes.
+const DEMO_TILT_ROTATE_DEG = 45;
+
 const DEMO_POLL_MS = 100;
 let demoPollTimer = null;
 let demoYawRad = 0;
@@ -1543,7 +1405,12 @@ const demoAlignHint = document.getElementById("demo-align-hint");
 
 function renderDemoBoard() {
   const qShown = demoManualMode ? demoManualQuat : demoCalibration.mul(demoLastSensorQuat);
-  demoBoardEl.style.transform = "matrix3d(" + qShown.toMatrix4().join(",") + ")";
+  // rotateZ(DEMO_TILT_ROTATE_DEG) is applied after (so it takes effect
+  // before, CSS transform functions apply right-to-left) the live
+  // matrix3d -- a fixed spin of the rectangle's own drawn geometry, not
+  // of the sensor data feeding qShown.
+  demoBoardEl.style.transform =
+    "matrix3d(" + qShown.toMatrix4().join(",") + ") rotateZ(" + DEMO_TILT_ROTATE_DEG + "deg)";
 }
 
 document.getElementById("demo-recenter").addEventListener("click", () => {
@@ -1654,7 +1521,9 @@ function updateDemoOrientation(data) {
       // mdps -> deg/s -> rad/s, times elapsed seconds -- capped so a long
       // gap (page backgrounded, board briefly offline) doesn't dump a
       // huge chunk of stale rotation in all at once when it resumes.
-      demoYawRad += (gyro.z / 1000) * (Math.PI / 180) * Math.min(dtSec, 0.5);
+      let gz = gyro.z;
+      if (DEMO_YAW_INVERT) gz = -gz;
+      demoYawRad += (gz / 1000) * (Math.PI / 180) * Math.min(dtSec, 0.5);
       document.getElementById("demo-yaw").textContent =
         (((demoYawRad * 180 / Math.PI) % 360 + 360) % 360).toFixed(1) + "°";
     }
@@ -1664,7 +1533,16 @@ function updateDemoOrientation(data) {
   if (!accel || typeof accel.x !== "number") return;
 
   const mag = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z) || 1;
-  const measuredUp = [accel.x / mag, accel.y / mag, accel.z / mag];
+  // Swapped vs. the raw accel.x/accel.y -- confirmed on a real board that
+  // this model's X/Y axes are the sensor's Y/X (the on-screen rectangle's
+  // long/short edges didn't line up with which physical edge the board
+  // was actually being tilted along until these were swapped).
+  let ux = accel.y / mag;
+  let uy = accel.x / mag;
+  const uz = accel.z / mag;
+  if (DEMO_TILT_INVERT_X) ux = -ux;
+  if (DEMO_TILT_INVERT_Y) uy = -uy;
+  const measuredUp = [ux, uy, uz];
   const qTilt = Quaternion.fromVectors(REST_UP, measuredUp);
 
   // Rotate the whole tilted board around the fixed REST_UP axis by
@@ -1682,9 +1560,10 @@ function updateDemoOrientation(data) {
   // tilt regardless of the combined quaternion) -- standard Z-up
   // formula, matching REST_UP above: pitch is rotation about the Y
   // axis (X against the other two), roll is rotation about the X axis
-  // (Y against Z). Kept only for the numeric display.
-  const pitch = Math.atan2(-accel.x, Math.sqrt(accel.y * accel.y + accel.z * accel.z)) * 180 / Math.PI;
-  const roll = Math.atan2(accel.y, accel.z) * 180 / Math.PI;
+  // (Y against Z). Built from the same (possibly inverted) ux/uy as the
+  // 3D model above, so the numbers always agree with what's on screen.
+  const pitch = Math.atan2(-ux, Math.sqrt(uy * uy + uz * uz)) * 180 / Math.PI;
+  const roll = Math.atan2(uy, uz) * 180 / Math.PI;
   document.getElementById("demo-pitch").textContent = pitch.toFixed(1) + "°";
   document.getElementById("demo-roll").textContent = roll.toFixed(1) + "°";
 }
@@ -1710,8 +1589,8 @@ const MAZE_ROOM_COLS = 6;
 const MAZE_ROOM_ROWS = 4;
 const MAZE_COLS = MAZE_ROOM_COLS * 2 + 1;       // 13 -- odd: walls sit on
 const MAZE_ROW_COUNT = MAZE_ROOM_ROWS * 2 + 1;  // 9  -- even indices, rooms on odd ones
-const CELL = 40;
-const BALL_RADIUS = 13;
+const CELL = 72;          // was 40, then 56 -- bigger cells, same 13x9 grid -- canvas/HTML width/height and .game-speedrun-bar's width below must stay MAZE_COLS*CELL / MAZE_ROW_COUNT*CELL
+const BALL_RADIUS = 23;   // scaled with CELL (13 * 72/40) to keep the same relative size
 
 let MAZE_ROWS = [];
 let mazeStartCol = 0, mazeStartRow = 0, mazeExitCol = 0, mazeExitRow = 0;
@@ -1856,7 +1735,10 @@ const GAME_TILT_INVERT_Y = false;
 // board here to feel them on), picked so a moderate tilt reaches a
 // controllable terminal speed (accel/drag) of a few cell-widths per
 // second rather than either creeping or overshooting corridors.
-const GAME_TILT_ACCEL_GAIN = 2200;
+// GAME_TILT_ACCEL_GAIN scales with CELL (2200 * 72/40) so that "a few
+// cell-widths per second" feel stays the same now that CELL is bigger;
+// GAME_DRAG_K is a rate (1/s), not a distance, so it doesn't need to.
+const GAME_TILT_ACCEL_GAIN = 3960;
 const GAME_DRAG_K = 3.2;
 
 const gameBall = { x: 0, y: 0, vx: 0, vy: 0 };
@@ -2041,8 +1923,10 @@ function updateGameStatusUI() {
 function stepGamePhysics(dt) {
   if (gameWon && !speedrunActive) return;
 
-  let ax = gameLatestAccelX / 1000;
-  let ay = gameLatestAccelY / 1000;
+  // Swapped vs. the raw accel.x/accel.y -- same real-board finding as the
+  // Demo tab: this game's X/Y are the sensor's Y/X.
+  let ax = gameLatestAccelY / 1000;
+  let ay = gameLatestAccelX / 1000;
   if (GAME_TILT_INVERT_X) ax = -ax;
   if (GAME_TILT_INVERT_Y) ay = -ay;
 
@@ -2196,16 +2080,16 @@ renderGame();
 
 // ---------------------------------------------------------------------
 // Apple Catch: full-screen game, basket moves linearly, controlled by
-// gyroscope rate (turn the board like a steering wheel -- gyro.x -- and
+// gyroscope rate (turn the board like a steering wheel -- gyro.z -- and
 // the basket slides at a speed proportional to how hard you're turning,
 // not by an absolute tilt angle like the maze). Apples fall from the top
 // of the screen and speed up / spawn faster the longer a run lasts.
 // ---------------------------------------------------------------------
-const APPLES_GYRO_INVERT = false;
-const APPLES_GYRO_GAIN = 5;      // px/s of basket velocity per deg/s of gyro.x
+const APPLES_GYRO_INVERT = true;   // confirmed on real hardware: holding the board normally (not backwards) needs the raw gyro.z sign flipped to steer the intuitive way
+const APPLES_GYRO_GAIN = 5;      // px/s of basket velocity per deg/s of gyro.z
 const APPLES_GYRO_DEADZONE = 2;  // deg/s -- ignore sensor noise/drift near zero so the basket doesn't creep on its own
-const APPLES_GYRO_SMOOTHING = 10; // higher = snappier, lower = smoother; exponential low-pass on the raw reading so a poll-to-poll jump in gyro.x doesn't yank the basket
-let applesSmoothedGyroX = 0;
+const APPLES_GYRO_SMOOTHING = 10; // higher = snappier, lower = smoother; exponential low-pass on the raw reading so a poll-to-poll jump in gyro.z doesn't yank the basket
+let applesSmoothedGyroZ = 0;
 
 const APPLE_BASKET_WIDTH = 120;
 const APPLE_BASKET_HEIGHT = 46;
@@ -2223,6 +2107,7 @@ const APPLE_MIN_SPAWN_INTERVAL = 0.4 * 1.25;
 const APPLE_SPAWN_RAMP_PER_SEC = 0.012 * 1.25;  // seconds shaved off the interval per second survived
 
 const APPLES_STARTING_LIVES = 3;
+const APPLES_MAX_LIVES = 3;   // catching an apple grants a life (see stepApples), capped here
 
 // ---- Floor spikes: a hazard separate from the apples/lives system --
 // every 5-8s one slides across the very bottom of the screen at a steady
@@ -2235,7 +2120,7 @@ const APPLE_SPIKE_SPEED = 260;        // px/s, constant -- "traverse de maniere 
 const APPLE_SPIKE_WIDTH = 42;
 const APPLE_SPIKE_HEIGHT = 46;
 
-const APPLE_JUMP_VELOCITY = -620;      // px/s, upward (negative = up)
+const APPLE_JUMP_VELOCITY = -750;      // px/s, upward (negative = up) -- peak height v^2/(2*gravity), ~148px vs the old -620's ~101px
 const APPLE_JUMP_GRAVITY = 1900;       // px/s^2 pulling the basket back down
 const APPLE_JUMP_SAFE_OFFSET = 45;     // px the basket must have risen to clear a spike passing underneath
 
@@ -2252,7 +2137,7 @@ let applesBasketJumpVel = 0;
 let applesSpikes = [];        // {x, y, dir} -- dir is +1 (left->right) or -1 (right->left)
 let applesSpikeTimer = 0;
 let applesDeathBySpike = false;
-let applesLatestGyroX = 0;
+let applesLatestGyroZ = 0;
 let applesLatestButtonPressed = 0;
 let applesLastButtonPressed = 0;
 let applesPollTimer = null;
@@ -2288,6 +2173,24 @@ function updateApplesBestDisplays() {
 }
 updateApplesBestDisplays();
 
+// Easy = no floor spikes at all (see stepApples' hard-mode-only spike
+// block below); Hard = the game as originally built. Persisted the same
+// way as the best score so it survives a reload.
+let applesMode = "hard";
+try {
+  const savedMode = localStorage.getItem("appleCatchMode");
+  if (savedMode === "easy" || savedMode === "hard") applesMode = savedMode;
+} catch (e) {}
+
+const applesModeBtns = document.querySelectorAll(".apples-mode-btn");
+function setApplesMode(mode) {
+  applesMode = mode;
+  try { localStorage.setItem("appleCatchMode", mode); } catch (e) {}
+  applesModeBtns.forEach(btn => btn.classList.toggle("active", btn.dataset.mode === mode));
+}
+applesModeBtns.forEach(btn => btn.addEventListener("click", () => setApplesMode(btn.dataset.mode)));
+setApplesMode(applesMode);
+
 function resizeApplesCanvas() {
   applesCanvas.width = window.innerWidth;
   applesCanvas.height = window.innerHeight;
@@ -2296,7 +2199,7 @@ function resizeApplesCanvas() {
 
 function updateApplesHud() {
   applesScoreEl.textContent = String(applesScore);
-  applesLivesEl.textContent = "❤".repeat(Math.max(0, applesLives)) + "🖤".repeat(APPLES_STARTING_LIVES - Math.max(0, applesLives));
+  applesLivesEl.textContent = "❤".repeat(Math.max(0, applesLives)) + "🖤".repeat(APPLES_MAX_LIVES - Math.max(0, applesLives));
 }
 
 function startApplesGame() {
@@ -2312,7 +2215,7 @@ function startApplesGame() {
   applesSpikes = [];
   applesSpikeTimer = randomSpikeInterval();
   applesDeathBySpike = false;
-  applesSmoothedGyroX = 0;
+  applesSmoothedGyroZ = 0;
   applesLastButtonPressed = applesLatestButtonPressed;  // don't let a button already held from a prior tab trigger an instant jump
   applesLastFrameTime = null;
   applesStartOverlay.hidden = true;
@@ -2350,12 +2253,12 @@ function stepApples(dt) {
   // into velocity made the basket visibly jump/judder every poll instead
   // of gliding), and a small deadzone so sensor noise near zero doesn't
   // make the basket creep on its own while the board is held still.
-  let gxRaw = applesLatestGyroX / 1000;
-  if (APPLES_GYRO_INVERT) gxRaw = -gxRaw;
-  if (Math.abs(gxRaw) < APPLES_GYRO_DEADZONE) gxRaw = 0;
-  applesSmoothedGyroX += (gxRaw - applesSmoothedGyroX) * Math.min(1, dt * APPLES_GYRO_SMOOTHING);
+  let gzRaw = applesLatestGyroZ / 1000;
+  if (APPLES_GYRO_INVERT) gzRaw = -gzRaw;
+  if (Math.abs(gzRaw) < APPLES_GYRO_DEADZONE) gzRaw = 0;
+  applesSmoothedGyroZ += (gzRaw - applesSmoothedGyroZ) * Math.min(1, dt * APPLES_GYRO_SMOOTHING);
 
-  applesBasketX += applesSmoothedGyroX * APPLES_GYRO_GAIN * dt;
+  applesBasketX += applesSmoothedGyroZ * APPLES_GYRO_GAIN * dt;
   const halfBasket = APPLE_BASKET_WIDTH / 2;
   applesBasketX = Math.max(halfBasket, Math.min(applesCanvas.width - halfBasket, applesBasketX));
 
@@ -2384,39 +2287,41 @@ function stepApples(dt) {
     applesFalling.push({ x: x, y: -APPLE_RADIUS, vy: fallSpeed });
   }
 
-  // Floor spikes: spawn every 5-8s from a random side, cross at a steady
-  // pace, and end the run instantly if they reach the basket while it's
-  // still (close enough to) grounded.
-  applesSpikeTimer -= dt;
-  if (applesSpikeTimer <= 0) {
-    applesSpikeTimer = randomSpikeInterval();
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    const startX = dir === 1 ? -APPLE_SPIKE_WIDTH : applesCanvas.width + APPLE_SPIKE_WIDTH;
-    applesSpikes.push({ x: startX, dir: dir });
-  }
-
-  const remainingSpikes = [];
-  for (const spike of applesSpikes) {
-    if (!applesActive) { remainingSpikes.push(spike); continue; }
-
-    spike.x += spike.dir * APPLE_SPIKE_SPEED * dt;
-
-    const spikeLeft = spike.x - APPLE_SPIKE_WIDTH / 2;
-    const spikeRight = spike.x + APPLE_SPIKE_WIDTH / 2;
-    const overlapsBasketX = spikeRight >= applesBasketX - halfBasket && spikeLeft <= applesBasketX + halfBasket;
-    const clearedIt = applesBasketJumpY <= -APPLE_JUMP_SAFE_OFFSET;
-    if (overlapsBasketX && !clearedIt) {
-      applesDeathBySpike = true;
-      endApplesGame();
-      continue;
+  // Floor spikes: hard mode only (see applesMode) -- spawn every 5-8s from
+  // a random side, cross at a steady pace, and end the run instantly if
+  // they reach the basket while it's still (close enough to) grounded.
+  if (applesMode === "hard") {
+    applesSpikeTimer -= dt;
+    if (applesSpikeTimer <= 0) {
+      applesSpikeTimer = randomSpikeInterval();
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const startX = dir === 1 ? -APPLE_SPIKE_WIDTH : applesCanvas.width + APPLE_SPIKE_WIDTH;
+      applesSpikes.push({ x: startX, dir: dir });
     }
 
-    if (spike.x > -APPLE_SPIKE_WIDTH && spike.x < applesCanvas.width + APPLE_SPIKE_WIDTH) {
-      remainingSpikes.push(spike);
+    const remainingSpikes = [];
+    for (const spike of applesSpikes) {
+      if (!applesActive) { remainingSpikes.push(spike); continue; }
+
+      spike.x += spike.dir * APPLE_SPIKE_SPEED * dt;
+
+      const spikeLeft = spike.x - APPLE_SPIKE_WIDTH / 2;
+      const spikeRight = spike.x + APPLE_SPIKE_WIDTH / 2;
+      const overlapsBasketX = spikeRight >= applesBasketX - halfBasket && spikeLeft <= applesBasketX + halfBasket;
+      const clearedIt = applesBasketJumpY <= -APPLE_JUMP_SAFE_OFFSET;
+      if (overlapsBasketX && !clearedIt) {
+        applesDeathBySpike = true;
+        endApplesGame();
+        continue;
+      }
+
+      if (spike.x > -APPLE_SPIKE_WIDTH && spike.x < applesCanvas.width + APPLE_SPIKE_WIDTH) {
+        remainingSpikes.push(spike);
+      }
+      // else it fully exited the screen on the far side -- drop it
     }
-    // else it fully exited the screen on the far side -- drop it
+    applesSpikes = remainingSpikes;
   }
-  applesSpikes = remainingSpikes;
 
   const basketTop = applesCanvas.height - 70 + applesBasketJumpY;
   const basketBottom = basketTop + APPLE_BASKET_HEIGHT;
@@ -2437,6 +2342,7 @@ function stepApples(dt) {
       apple.x >= basketLeft && apple.x <= basketRight;
     if (caught) {
       applesScore++;
+      applesLives = Math.min(APPLES_MAX_LIVES, applesLives + 1);
       updateApplesHud();
       continue; // consumed, don't keep falling
     }
@@ -2537,8 +2443,8 @@ function pollApplesSensors() {
     .then(data => {
       const reading = data.reading;
       if (!reading) return;
-      if (reading.gyroscope && typeof reading.gyroscope.x === "number") {
-        applesLatestGyroX = reading.gyroscope.x;
+      if (reading.gyroscope && typeof reading.gyroscope.z === "number") {
+        applesLatestGyroZ = reading.gyroscope.z;
       }
       if (reading.button && typeof reading.button.pressed === "number") {
         applesLatestButtonPressed = reading.button.pressed;
@@ -2933,10 +2839,9 @@ function pollCryptoSample() {
     .then(r => r.json())
     .then(sample => {
       renderCodec(sample);
-      renderSequence(sample);
     })
     .catch(e => {
-      document.getElementById("codec-body").innerHTML = `<div class="chart-empty">couldn't load captured sample: ${escapeHTML(e)}</div>`;
+      document.getElementById("codec-body").innerHTML = `<div class="chart-empty">impossible de charger l'échantillon capturé : ${escapeHTML(e)}</div>`;
     });
 }
 
@@ -2958,120 +2863,20 @@ function renderCodec(sample) {
   body.innerHTML = `
     <div class="codec-grid">
       <div class="codec-panel cipher">
-        <div class="label">🔒 Ciphertext — as sent over the wire</div>
-        <div class="meta">${sample.request_ciphertext_hex.length / 2} bytes</div>
+        <div class="label">🔒 Texte chiffré — tel qu'envoyé sur le réseau</div>
+        <div class="meta">${sample.request_ciphertext_hex.length / 2} octets</div>
         <pre class="hexdump">${hexDump(sample.request_ciphertext_hex)}</pre>
       </div>
       <div class="codec-panel plain">
-        <div class="label">🔓 Plaintext — after AES decrypt + MAC verify</div>
-        <div class="meta">POST /sensors · ${sample.request_plaintext.length} bytes</div>
+        <div class="label">🔓 Texte en clair — après déchiffrement AES + vérification MAC</div>
+        <div class="meta">POST /sensors · ${sample.request_plaintext.length} octets</div>
         <pre class="jsonblock">${escapeHTML(pretty)}</pre>
       </div>
     </div>
-    <p class="caption">Real board connection (${escapeHTML(sample.client_ip)}) — ${escapeHTML(sample.tls_version)} /
-      ${escapeHTML(sample.cipher)} (${sample.bits}-bit) — captured ${ageS}s ago. Response:
-      "${escapeHTML(sample.response_plaintext.trim())}" (${sample.response_ciphertext_hex.length / 2} bytes ciphertext).</p>
+    <p class="caption">Connexion réelle de la carte (${escapeHTML(sample.client_ip)}) — ${escapeHTML(sample.tls_version)} /
+      ${escapeHTML(sample.cipher)} (${sample.bits} bits) — capturée il y a ${ageS}s. Réponse :
+      "${escapeHTML(sample.response_plaintext.trim())}" (${sample.response_ciphertext_hex.length / 2} octets de texte chiffré).</p>
   `;
-}
-
-// One color per TLS record content type, shared between the sequence
-// diagram's arrows and (for consistency) implied by the red/green
-// cipher/plain panel styling above.
-const SEQ_COLORS = { Handshake: "#4da3ff", ChangeCipherSpec: "#e8b339", ApplicationData: "#3ecf8e" };
-
-function seqRow(row, direction, label, meta, colorKey) {
-  const color = SEQ_COLORS[colorKey] || "#8892a4";
-  return `<div class="seq-arrow-wrap ${direction}" style="grid-column:2; grid-row:${row}; --arrow-color:${color}">
-    <div class="lbl" style="color:${color}">${escapeHTML(label)}</div>
-    <div class="line"><div class="shaft"></div><div class="head"></div></div>
-    <div class="meta">${escapeHTML(meta)}</div>
-  </div>`;
-}
-
-function renderSequence(sample) {
-  const wrap = document.getElementById("seq-diagram");
-  if (sample.error || !sample.handshake_sequence) {
-    wrap.innerHTML = `<div class="chart-empty">${escapeHTML(sample.error || "no handshake captured yet")}</div>`;
-    return;
-  }
-  let html = `
-    <div class="seq-lifeline" style="grid-column:1; grid-row:1 / -1"></div>
-    <div class="seq-lifeline" style="grid-column:3; grid-row:1 / -1"></div>
-    <div class="seq-lane-label" style="grid-column:1; grid-row:1">📟 BOARD</div>
-    <div class="seq-lane-label" style="grid-column:3; grid-row:1">🖥️ SERVER</div>
-  `;
-  let row = 2;
-  for (const rec of sample.handshake_sequence) {
-    html += seqRow(row++, rec.direction, rec.handshake_type_name || rec.content_type_name,
-                   `${rec.length} bytes`, rec.content_type_name);
-  }
-  html += seqRow(row++, "c2s", "Application Data (POST /sensors)",
-                 `${sample.request_ciphertext_hex.length / 2} bytes`, "ApplicationData");
-  html += seqRow(row++, "s2c", "Application Data (response)",
-                 `${sample.response_ciphertext_hex.length / 2} bytes`, "ApplicationData");
-  wrap.style.gridTemplateRows = `repeat(${row - 1}, auto)`;
-  wrap.innerHTML = html;
-}
-
-function renderCertAndKey(info) {
-  const certBody = document.getElementById("cert-body");
-  const keyBody = document.getElementById("key-body");
-
-  if (info.error) {
-    certBody.innerHTML = `<div class="chart-empty">${escapeHTML(info.error)}</div>`;
-  } else {
-    certBody.innerHTML = `
-      <dl class="kv-grid">
-        <dt>Subject</dt><dd>${escapeHTML(info.subject)}</dd>
-        <dt>Issuer</dt><dd>${escapeHTML(info.issuer)}</dd>
-        <dt>Serial</dt><dd>${escapeHTML(info.serial_number)}</dd>
-        <dt>Valid from</dt><dd>${escapeHTML(info.not_valid_before)}</dd>
-        <dt>Valid until</dt><dd>${escapeHTML(info.not_valid_after)}</dd>
-        <dt>SHA-256 fingerprint</dt><dd>${escapeHTML(info.sha256_fingerprint)}</dd>
-      </dl>
-      <details class="pem-toggle">
-        <summary>Show full PEM</summary>
-        <pre class="pem-block">${escapeHTML(info.pem)}</pre>
-      </details>
-    `;
-  }
-
-  let html = "";
-  if (!info.error) {
-    html += `
-      <div class="key-card">
-        <div class="label">Public key (in the certificate)</div>
-        <dl class="kv-grid">
-          <dt>Algorithm</dt><dd>${escapeHTML(info.public_key_algorithm)} ${info.public_key_bits}-bit</dd>
-          <dt>Exponent</dt><dd>${info.public_key_exponent}</dd>
-        </dl>
-        <details class="pem-toggle">
-          <summary>Show modulus (${info.public_key_modulus_hex.length / 2} bytes)</summary>
-          <pre class="hexdump">${hexDump(info.public_key_modulus_hex)}</pre>
-        </details>
-      </div>`;
-  }
-  if (info.private_key_algorithm) {
-    html += `
-      <div class="key-card">
-        <div class="label">Private key</div>
-        <dl class="kv-grid">
-          <dt>Algorithm</dt><dd>${escapeHTML(info.private_key_algorithm)} ${info.private_key_bits}-bit</dd>
-          <dt>Location</dt><dd>tools/certs/${escapeHTML(info.private_key_location)}</dd>
-        </dl>
-        <p class="redacted">⚠ never served over the network, including here — type/size only</p>
-      </div>`;
-  } else if (info.private_key_error) {
-    html += `<div class="key-card"><div class="label">Private key</div><div class="chart-empty">${escapeHTML(info.private_key_error)}</div></div>`;
-  }
-  html += `
-    <div class="key-card">
-      <div class="label">Board's key material</div>
-      <p class="note">None — the board is the TLS <em>client</em> here (one-way authentication). Its only
-        related credential is a compile-time copy of this same certificate's public bytes
-        (<code>NetXDuo/App/https_ca_cert.h</code>), used to verify the server, not to authenticate itself.</p>
-    </div>`;
-  keyBody.innerHTML = html;
 }
 
 renderAll(null);
