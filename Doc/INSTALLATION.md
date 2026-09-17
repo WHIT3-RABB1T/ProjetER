@@ -290,6 +290,6 @@ liaison série.**
   ouverte (le message n'apparaît qu'au démarrage, si la liaison est ouverte
   après, vous le manquez).
 
-**Pour aller plus loin :** voir `Doc/ARCHITECTURE.md` (comment le code du
-firmware est organisé) et `tools/README.md` (comment le serveur
+**Pour aller plus loin :** voir `Doc/STM32.md` (comment le code du
+firmware est organisé) et `Doc/SERVER.md` (comment le serveur
 fonctionne en détail).
