@@ -1,8 +1,6 @@
-# Guide d'installation — de zéro à un tableau de bord fonctionnel
+# Guide d'installation 
 
-Ce guide explique, étape par étape, comment faire fonctionner ce projet sur
-un **ordinateur complètement neuf**, qui n'a jamais eu ni le projet, ni
-aucun des outils nécessaires installés. Il ne suppose aucune connaissance
+Ce guide explique, étape par étape, comment faire fonctionner. Il ne suppose aucune connaissance
 technique préalable.
 
 **Ce qui est déjà fait :** la carte électronique (le "board") est déjà
