@@ -186,8 +186,7 @@ liaison directe avec la carte.
 
 ### 5.4 — Redémarrer la carte et répondre aux questions
 
-Débranchez puis rebranchez le câble USB de la carte (ou appuyez sur son
-bouton "RESET" s'il y en a un) pour la redémarrer, tout en gardant la
+Appuyez sur son bouton "RESET" pour la redémarrer, tout en gardant la
 fenêtre de la liaison série ouverte.
 
 Du texte va défiler. À un moment, vous verrez :
