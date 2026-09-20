@@ -1,0 +1,20 @@
+# For Docker Desktop on Windows/Mac, where network_mode: host isn't available
+# (see docker-compose.yml). Run with:
+#   docker compose -f docker-compose.bridge.yml up --build
+#
+# LIMITATION: the browser dashboard and the board's HTTPS POSTs work through
+# published ports, but the board's UDP broadcast *discovery* does not -- the
+# request reaches the container, but Docker's UDP relay can't send the reply
+# back to a broadcast sender, so the board never learns this machine's IP and
+# only works if this machine happens to be at the fallback HTTP_SERVER_ADDRESS
+# baked into the firmware (app_netxduo.h). For a board on a network that
+# fallback doesn't match, run http_server.py directly with Python instead.
+services:
+  https-server:
+    build: .
+    ports:
+      - "8443:8443"
+      - "7000:7000/udp"
+    volumes:
+      - ./certs:/app/certs:ro
+    restart: unless-stopped

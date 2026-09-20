@@ -1,23 +1,24 @@
 services:
   https-server:
     build: .
-    # Regular bridge network with explicit port publishing -- portable to
-    # Docker Desktop on Windows/Mac (which run containers inside a VM, so
-    # network_mode: host doesn't work there at all) as well as Linux.
-    # Confirmed on Linux that a broadcast UDP packet (255.255.255.255:7000,
-    # what the board's Discover_ServerIP() sends -- see app_netxduo.h) does
-    # reach the container through a plain published port: Docker's UDP
-    # port-forwarding is a real bidirectional relay, not an iptables DNAT
-    # rule keyed to a specific destination address, so it isn't picky about
-    # the packet's destination being a broadcast address. Not verified on
-    # Windows/Mac specifically (an extra VM-boundary hop Docker Desktop adds
-    # that isn't present on Linux) -- if discovery doesn't reach the
-    # container there, the board falls back on its own after ~30s to
-    # whatever fixed IP is hardcoded in HTTP_SERVER_ADDRESS/HOST
-    # (app_netxduo.h), so it isn't a hard blocker either way.
-    ports:
-      - "8443:8443"
-      - "7000:7000/udp"
+    # Host networking, not published ports: the board finds this server via
+    # a UDP *broadcast* on port 7000 (Discover_ServerIP() in app_netxduo.c,
+    # answered by discovery_responder() in http_server.py), and it reads the
+    # server's IP from the reply packet's source address. Docker's published-
+    # port UDP relay (docker-proxy) delivers the broadcast into the container
+    # fine, but cannot send a valid reply back to a broadcast sender -- the
+    # board never gets an answer, retries every 2s, and never connects
+    # (verified: with published ports the reply never arrives; with host
+    # networking it arrives from the host's real IP). With network_mode:
+    # host the container shares the host's network stack, so it behaves
+    # exactly like running http_server.py directly on the host. No `ports:`
+    # mapping is needed (or allowed): 8443/tcp and 7000/udp are the host's own.
+    #
+    # Linux only -- Docker Desktop on Windows/Mac runs containers in a VM
+    # and has no equivalent. There, run http_server.py directly with Python
+    # instead (see Doc/INSTALLATION.md), or use docker-compose.bridge.yml
+    # (HTTPS dashboard works, but the board's discovery does not).
+    network_mode: host
     volumes:
       # Bind-mounted, not baked into the image: server.crt/.key must match
       # exactly whatever's pinned in the board firmware currently being

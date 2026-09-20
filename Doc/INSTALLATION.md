@@ -51,26 +51,34 @@ refusera de s'y connecter.
 
 ---
 
-## Étape 2 — Installer Docker Desktop
+## Étape 2 — Installer le logiciel qui fait tourner le serveur
 
-Docker est un logiciel qui permet de lancer le serveur du projet en une
-seule commande, sans avoir à installer Python ni aucune autre dépendance
-à la main.
+Le serveur du projet est un petit programme Python. Selon votre ordinateur,
+il se lance de deux façons différentes.
 
-1. Allez sur <https://www.docker.com/products/docker-desktop/> et
-   téléchargez la version correspondant à votre système (Windows, Mac ou
-   Linux).
-2. Installez-le comme n'importe quel autre logiciel (suivez les
-   instructions à l'écran ; un redémarrage de l'ordinateur peut être
-   demandé sur Windows).
-3. Lancez Docker Desktop une fois installé, et attendez que son icône
-   indique qu'il est démarré (généralement une icône de baleine dans la
-   barre des tâches/barre de menu, qui devient stable une fois prête —
-   comptez 1 à 2 minutes au premier lancement).
+> **Pourquoi deux façons ?** La carte retrouve le serveur toute seule en
+> envoyant un message "y a-t-il un serveur ici ?" à tout le réseau
+> (broadcast). Docker sur Windows et Mac isole le serveur dans une machine
+> virtuelle qui **ne peut pas répondre correctement à ce message** — la carte
+> ne trouverait jamais le serveur. Sur Linux, Docker peut partager
+> directement la connexion réseau de l'ordinateur, et tout fonctionne.
 
-> Sur Windows, si Docker Desktop vous demande d'activer "WSL2" ou la
-> virtualisation, acceptez et suivez ses instructions — c'est une étape
-> normale, à faire une seule fois.
+**Windows ou Mac → installez Python (méthode recommandée)**
+
+1. Allez sur <https://www.python.org/downloads/> et téléchargez la dernière
+   version de Python 3.
+2. Lancez l'installateur. **Sur Windows, cochez absolument la case
+   "Add python.exe to PATH"** en bas de la première fenêtre, puis cliquez
+   sur "Install Now". (Sans cette case, l'étape 4 ne fonctionnera pas.)
+3. Aucune autre installation n'est nécessaire : le serveur n'utilise que ce
+   que Python fournit déjà.
+
+**Linux → installez Docker**
+
+1. Installez Docker Engine et le plugin Compose en suivant le guide officiel
+   pour votre distribution : <https://docs.docker.com/engine/install/>
+2. Vérifiez qu'il fonctionne en tapant `docker compose version` dans un
+   terminal.
 
 ---
 
@@ -101,21 +109,36 @@ cd chemin/vers/ProjetER/tools
 
 ## Étape 4 — Lancer le serveur
 
-Dans le terminal ouvert à l'étape précédente, tapez exactement :
+Dans le terminal ouvert à l'étape précédente, tapez la commande qui
+correspond à votre ordinateur, puis appuyez sur Entrée :
 
+**Windows :**
+```
+python http_server.py
+```
+(Si Windows répond que `python` est introuvable, essayez `py http_server.py`.)
+
+**Mac :**
+```
+python3 http_server.py
+```
+
+**Linux (avec Docker) :**
 ```
 docker compose up --build
 ```
+La première fois, cela peut prendre quelques minutes (Docker télécharge et
+prépare tout ce dont il a besoin).
 
-puis appuyez sur Entrée.
+**Sur Windows**, une fenêtre du pare-feu peut apparaître : cliquez sur
+**"Autoriser l'accès"** (réseaux privés). Sans cela, la carte ne pourra pas
+joindre le serveur.
 
-La première fois, cela peut prendre quelques minutes (le logiciel
-télécharge et prépare tout ce dont il a besoin). Vous verrez défiler du
-texte, et vous devriez voir apparaître des lignes ressemblant à ceci :
+Vous devriez voir apparaître des lignes ressemblant à ceci :
 
 ```
 Listening on TLS 1.2 (AES128-SHA256:AES256-SHA256) 0.0.0.0:8443
-Certificate: /app/certs/server.crt
+Certificate: (chemin vers)/tools/certs/server.crt
 This machine's LAN-facing IP looks like: 192.168.1.42
   -> the board finds this on its own via UDP discovery (port 7000); no need to hardcode it.
 Dashboard: https://192.168.1.42:8443/ (browser will warn on the self-signed cert -- proceed past it)
@@ -253,8 +276,8 @@ terminée — elle ne sert qu'à cette configuration ponctuelle.
 | Étape | Une seule fois, ou à chaque redémarrage ? |
 |---|---|
 | 1. Récupérer le projet | Une seule fois |
-| 2. Installer Docker Desktop | Une seule fois |
-| 3-4. Lancer le serveur | À chaque fois que vous voulez utiliser le projet (`docker compose up --build` dans `tools/`) |
+| 2. Installer Python (Windows/Mac) ou Docker (Linux) | Une seule fois |
+| 3-4. Lancer le serveur | À chaque fois que vous voulez utiliser le projet (`python http_server.py` ou `docker compose up --build`, dans `tools/`) |
 | 5. Connecter la carte au Wi-Fi | Une seule fois par réseau Wi-Fi (pas besoin de recommencer si le réseau ne change pas) |
 | 6. Ouvrir le tableau de bord | À chaque fois |
 
@@ -270,8 +293,8 @@ terminée — elle ne sert qu'à cette configuration ponctuelle.
 - Attendez 30 secondes : la carte essaie plusieurs fois de retrouver le
   serveur avant d'abandonner.
 
-**`docker compose up --build` affiche une erreur de port déjà utilisé
-("port is already allocated").**
+**Le serveur affiche une erreur de port déjà utilisé ("Address already in use" ou
+"port is already allocated").**
 - Un autre programme utilise déjà le port 8443 sur cet ordinateur (peut-être
   une ancienne copie du serveur encore ouverte dans un autre terminal).
   Fermez-la, ou redémarrez l'ordinateur.

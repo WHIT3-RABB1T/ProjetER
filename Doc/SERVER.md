@@ -214,12 +214,29 @@ Arrêt avec Ctrl+C.
 
 ## 11. Avec Docker
 
-`tools/Dockerfile` et `tools/docker-compose.yml` empaquettent ce serveur
-(voir aussi ces fichiers pour le détail) : `docker compose up --build` dans
-`tools/` construit l'image et démarre le conteneur, avec `tools/certs/`
-monté en volume (le certificat/la clé doivent correspondre exactement à ce
-que le firmware actuellement flashé sur la carte a en dur dans
-`https_ca_cert.h`, donc ils ne sont pas intégrés à l'image elle-même).
+`tools/Dockerfile` et `tools/docker-compose.yml` empaquettent ce serveur :
+`docker compose up --build` dans `tools/` construit l'image et démarre le
+conteneur, avec `tools/certs/` monté en volume (le certificat/la clé doivent
+correspondre exactement à ce que le firmware actuellement flashé sur la carte
+a en dur dans `https_ca_cert.h`, donc ils ne sont pas intégrés à l'image
+elle-même).
+
+**Le conteneur utilise `network_mode: host` (Linux uniquement).** La carte
+retrouve le serveur par un *broadcast* UDP et lit l'adresse IP du serveur
+dans l'adresse source de la réponse. Avec des ports publiés classiques
+(`ports: 7000:7000/udp`), le relais UDP de Docker (`docker-proxy`) fait bien
+arriver le broadcast dans le conteneur, mais ne sait pas renvoyer la réponse à
+l'expéditeur d'un broadcast : la carte ne reçoit jamais rien, relance sa
+requête toutes les 2 s, et ne se connecte jamais (constaté : le journal du
+serveur affiche des « Discovery request ... replying » en boucle, sans aucune
+connexion TLS). En mode `host`, le conteneur partage la pile réseau de la
+machine et se comporte exactement comme `http_server.py` lancé directement.
+
+Docker Desktop (Windows/Mac) n'offre pas ce mode : le serveur doit y être
+lancé directement avec Python (`python http_server.py`, voir
+`Doc/INSTALLATION.md`). `tools/docker-compose.bridge.yml` (ports publiés)
+existe pour ces plateformes, mais uniquement pour le tableau de bord et les
+`POST` — pas pour la découverte automatique.
 
 ## 12. Fichiers liés, côté carte
 
