@@ -1,100 +1,100 @@
-## <b>Nx_UDP_Echo_Client Application Description</b>
+## <b>Description de l'application Nx_UDP_Echo_Client</b>
 
-This application provides an example of Azure RTOS NetX/NetXDuo stack usage.
+Cette application fournit un exemple d'utilisation de la pile Azure RTOS NetX/NetXDuo.
 
-It shows how to develop a NetX udp client to communicate with a remote sever using the NetX UDP socket API.
+Elle montre comment développer un client UDP NetX qui communique avec un serveur distant à l'aide de l'API de sockets UDP de NetX.
 
-The main entry function tx_application_define() is called by ThreadX during kernel start, at this stage, all NetX resources are created.
+La fonction d'entrée principale tx_application_define() est appelée par ThreadX au démarrage du noyau ; c'est à ce moment que toutes les ressources NetX sont créées.
 
- + A <i>NX_PACKET_POOL</i>is allocated
+ + Un <i>NX_PACKET_POOL</i> est alloué
 
- + A <i>NX_IP</i> instance using that pool is initialized
+ + Une instance <i>NX_IP</i> utilisant ce pool est initialisée
 
- + The <i>ARP</i>, <i>ICMP</i> and <i>UDP</i> protocols are enabled for the <i>NX_IP</i> instance
+ + Les protocoles <i>ARP</i>, <i>ICMP</i> et <i>UDP</i> sont activés pour l'instance <i>NX_IP</i>
 
- + A <i>DHCP client is created.</i>
+ + Un <i>client DHCP est créé.</i>
 
-The application then creates 2 threads with the same priorities:
+L'application crée ensuite 2 threads de même priorité :
 
- + **AppMainThread** (priority 10, PreemtionThreashold 10) : created with the <i>TX_AUTO_START</i> flag to start automatically.
+ + **AppMainThread** (priorité 10, PreemtionThreashold 10) : créé avec l'indicateur <i>TX_AUTO_START</i> pour démarrer automatiquement.
 
- + **AppUDPThread** (priority 10, PreemtionThreashold 10) : created with the <i>TX_DONT_START</i> flag to be started later.
+ + **AppUDPThread** (priorité 10, PreemtionThreashold 10) : créé avec l'indicateur <i>TX_DONT_START</i> pour être démarré plus tard.
 
-The **AppMainThread** starts and perform the following actions:
+**AppMainThread** démarre et effectue les actions suivantes :
 
-  + Starts the DHCP client
+  + Démarre le client DHCP
 
-  + Waits for the IP address resolution
+  + Attend la résolution de l'adresse IP
 
-  + Resumes the **AppUDPThread**
+  + Relance **AppUDPThread**
 
-The **AppUDPThread**, once started:
+**AppUDPThread**, une fois démarré :
 
-  + Creates a <i>UDP</i> client socket
+  + Crée un socket client <i>UDP</i>
 
-  + Connects to the remote UDP server on the predefined port
+  + Se connecte au serveur UDP distant sur le port prédéfini
 
-  + On connection success, the UDP client sends a MAX_PACKET_COUNT messages to the server.
+  + Si la connexion réussit, le client UDP envoie MAX_PACKET_COUNT messages au serveur.
 
-  + At each message sent, the UDP client reads the sever response and prints it on the Hyperterminal and the green led is toggled.
+  + À chaque message envoyé, le client UDP lit la réponse du serveur et l'affiche sur l'HyperTerminal, et la LED verte change d'état.
 
 
-####  <b>Expected success behavior</b>
+####  <b>Comportement attendu en cas de succès</b>
 
- + The board IP address is printed on the HyperTerminal
+ + L'adresse IP de la carte est affichée sur l'HyperTerminal
 
- + The response messages sent by the server are printed on the HyerTerminal
+ + Les messages de réponse envoyés par le serveur sont affichés sur l'HyperTerminal
 
- + if the [echotool](https://github.com/PavelBansky/EchoTool/releases/tag/v1.5.0.0) utility is used the message sent by the client are displayed on the PC console.
+ + Si l'utilitaire [echotool](https://github.com/PavelBansky/EchoTool/releases/tag/v1.5.0.0) est utilisé, les messages envoyés par le client sont affichés dans la console du PC.
  
- + a summary message similar to the following is printed on the HyperTerminal and the green LED is toggling.
+ + Un message récapitulatif similaire au suivant est affiché sur l'HyperTerminal et la LED verte clignote.
 
  ```
   SUCCESS : 100 / 100 packets sent
 ```
 
-#### <b>Error behaviors</b>
+#### <b>Comportements en cas d'erreur</b>
 
-+ The Red LED is toggling to indicate any error that have occurred while the green LED is turned OFF.
++ La LED rouge clignote pour indiquer qu'une erreur s'est produite, tandis que la LED verte est éteinte.
 
-+ In case the message exchange is not completed the HyperTerminal is not printing the received messages.
++ Si l'échange de messages n'est pas terminé, l'HyperTerminal n'affiche pas les messages reçus.
 
-#### <b>Assumptions if any</b>
+#### <b>Hypothèses éventuelles</b>
 
-None
+Aucune
 
-#### <b>Known limitations</b>
+#### <b>Limitations connues</b>
 
-None
+Aucune
 
-#### <b>ThreadX usage hints</b>
+#### <b>Conseils d'utilisation de ThreadX</b>
 
- - ThreadX uses the Systick as time base, thus it is mandatory that the HAL uses a separate time base through the TIM IPs.
+ - ThreadX utilise le Systick comme base de temps ; il est donc obligatoire que le HAL utilise une base de temps distincte via les IP TIM.
 
- - ThreadX is configured with 100 ticks/sec by default, this should be taken into account when using delays or timeouts at application. It is always possible to reconfigure it in the "tx_user.h", the "TX_TIMER_TICKS_PER_SECOND" define,but this should be reflected in "tx_initialize_low_level.S" file too.
+ - ThreadX est configuré par défaut à 100 ticks/s, ce dont il faut tenir compte lors de l'utilisation de délais ou de timeouts dans l'application. Il est toujours possible de le reconfigurer dans « tx_user.h », via la définition « TX_TIMER_TICKS_PER_SECOND », mais cela doit aussi être répercuté dans le fichier « tx_initialize_low_level.S ».
 
- - ThreadX is disabling all interrupts during kernel start-up to avoid any unexpected behavior, therefore all system related calls (HAL, BSP) should be done either at the beginning of the application or inside the thread entry functions.
+ - ThreadX désactive toutes les interruptions pendant le démarrage du noyau pour éviter tout comportement inattendu ; par conséquent, tous les appels système (HAL, BSP) doivent être effectués soit au début de l'application, soit à l'intérieur des fonctions d'entrée des threads.
 
- - ThreadX offers the "tx_application_define()" function, that is automatically called by the tx_kernel_enter() API.
-   It is highly recommended to use it to create all applications ThreadX related resources (threads, semaphores, memory pools...)  but it should not in any way contain a system API call (HAL or BSP).
+ - ThreadX propose la fonction « tx_application_define() », appelée automatiquement par l'API tx_kernel_enter().
+   Il est vivement recommandé de l'utiliser pour créer toutes les ressources ThreadX de l'application (threads, sémaphores, pools mémoire...), mais elle ne doit en aucun cas contenir d'appel à une API système (HAL ou BSP).
  
- - Using dynamic memory allocation requires to apply some changes to the linker file.
+ - L'utilisation de l'allocation mémoire dynamique nécessite d'apporter quelques modifications au fichier de l'éditeur de liens.
 
-   ThreadX needs to pass a pointer to the first free memory location in RAM to the tx_application_define() function,
-   using the "first_unused_memory" argument.
-   This requires changes in the linker files to expose this memory location.
+   ThreadX doit transmettre à la fonction tx_application_define() un pointeur vers le premier emplacement mémoire libre en RAM,
+   via l'argument « first_unused_memory ».
+   Cela nécessite des modifications dans les fichiers de l'éditeur de liens pour exposer cet emplacement mémoire.
    
-    + For EWARM add the following section into the .icf file:
+    + Pour EWARM, ajoutez la section suivante dans le fichier .icf :
      ```
      place in RAM_region    { last section FREE_MEM };
      ```
-    + For MDK-ARM:
+    + Pour MDK-ARM :
     ```
-    either define the RW_IRAM1 region in the ".sct" file
-    or modify the line below in "tx_initialize_low_level.S to match the memory region being used
+    soit définir la région RW_IRAM1 dans le fichier « .sct »
+    soit modifier la ligne ci-dessous dans « tx_initialize_low_level.S » pour qu'elle corresponde à la région mémoire utilisée
         LDR r1, =|Image$$RW_IRAM1$$ZI$$Limit|
     ```
-    + For STM32CubeIDE add the following section into the .ld file:
+    + Pour STM32CubeIDE, ajoutez la section suivante dans le fichier .ld :
     ```
     ._threadx_heap :
       {
@@ -105,64 +105,64 @@ None
        } >RAM_D1 AT> RAM_D1
     ```
 
-       The simplest way to provide memory for ThreadX is to define a new section, see ._threadx_heap above.
-       In the example above the ThreadX heap size is set to 64KBytes.
-       The ._threadx_heap must be located between the .bss and the ._user_heap_stack sections in the linker script.
-       Caution: Make sure that ThreadX does not need more than the provided heap memory (64KBytes in this example).
-       Read more in STM32CubeIDE User Guide, chapter: "Linker script".
+       Le moyen le plus simple de fournir de la mémoire à ThreadX est de définir une nouvelle section, voir ._threadx_heap ci-dessus.
+       Dans l'exemple ci-dessus, la taille du tas ThreadX est fixée à 64 Ko.
+       La section ._threadx_heap doit être placée entre les sections .bss et ._user_heap_stack dans le script de l'éditeur de liens.
+       Attention : assurez-vous que ThreadX n'a pas besoin de plus de mémoire de tas que celle fournie (64 Ko dans cet exemple).
+       Pour en savoir plus, consultez le guide de l'utilisateur de STM32CubeIDE, chapitre : « Linker script ».
 
-    + The "tx_initialize_low_level.S" should be also modified to enable the "USE_DYNAMIC_MEMORY_ALLOCATION" flag.
+    + Le fichier « tx_initialize_low_level.S » doit également être modifié pour activer l'indicateur « USE_DYNAMIC_MEMORY_ALLOCATION ».
 
-### <b>Keywords</b>
+### <b>Mots-clés</b>
 
 RTOS, Network, ThreadX, NetXDuo, WIFI, UDP, MXCHIP, UART
 
-### <b>Hardware and Software environment</b>
+### <b>Environnement matériel et logiciel</b>
 
- - To use the EMW3080B MXCHIP Wi-Fi module functionality, 2 software components are required:
-   1. The module driver running on the STM32 device
-   2. The module firmware running on the EMW3080B Wi-Fi module
+ - Pour utiliser les fonctionnalités du module Wi-Fi MXCHIP EMW3080B, 2 composants logiciels sont nécessaires :
+   1. Le pilote du module, qui s'exécute sur le composant STM32
+   2. Le firmware du module, qui s'exécute sur le module Wi-Fi EMW3080B
 
- - This application uses an updated version of the EMW3080B MXCHIP Wi-Fi module driver V2.3.4.
+ - Cette application utilise une version mise à jour du pilote V2.3.4 du module Wi-Fi MXCHIP EMW3080B.
 
- - The B-U585I-IOT02A Discovery board Revision D is delivered with the EMW3080B MXCHIP Wi-Fi module firmware V2.1.11;
-   to upgrade your board with the required version V2.3.4, please visit [X-WIFI-EMW3080B](https://www.st.com/en/development-tools/x-wifi-emw3080b.html),
-   using the `EMW3080update_B-U585I-IOT02A-RevC_V2.3.4_SPI.bin` file under the V2.3.4/SPI folder.
+ - La carte Discovery B-U585I-IOT02A Révision D est livrée avec le firmware V2.1.11 du module Wi-Fi MXCHIP EMW3080B ;
+   pour mettre à jour votre carte vers la version V2.3.4 requise, rendez-vous sur [X-WIFI-EMW3080B](https://www.st.com/en/development-tools/x-wifi-emw3080b.html),
+   en utilisant le fichier `EMW3080update_B-U585I-IOT02A-RevC_V2.3.4_SPI.bin` dans le dossier V2.3.4/SPI.
 
- - Please note that module firmware version V2.1.11 is not backwards compatible with the driver V2.3.4 (the V2.1.11 module firmware is compatible with the driver versions from V2.1.11 to V2.1.13).
- - The module driver is available under [/Drivers/BSP/Components/mx_wifi](../../../../../Drivers/BSP/Components/mx_wifi/), and its version is indicated in the [Release_Notes.html](../../../../../Drivers/BSP/Components/mx_wifi/Release_Notes.html) file.
+ - Veuillez noter que le firmware V2.1.11 du module n'est pas rétrocompatible avec le pilote V2.3.4 (le firmware V2.1.11 du module est compatible avec les versions du pilote de V2.1.11 à V2.1.13).
+ - Le pilote du module est disponible dans [/Drivers/BSP/Components/mx_wifi](../../../../../Drivers/BSP/Components/mx_wifi/), et sa version est indiquée dans le fichier [Release_Notes.html](../../../../../Drivers/BSP/Components/mx_wifi/Release_Notes.html).
 
- - Be aware that some STM32U5 SW packages (for examples X-CUBE-AZURE and X-CUBE-AWS) may continue to use older version of the EMW3080B MXCHIP module firmware;
-   thanks to refer to the release notes of each SW package to know the recommended module firmware's version which can be retrieved from this page
+ - Sachez que certains paquets logiciels STM32U5 (par exemple X-CUBE-AZURE et X-CUBE-AWS) peuvent continuer à utiliser d'anciennes versions du firmware du module MXCHIP EMW3080B ;
+   veuillez vous référer aux notes de version de chaque paquet logiciel pour connaître la version de firmware du module recommandée, qui peut être obtenue sur cette page :
    [X-WIFI-EMW3080B](https://www.st.com/en/development-tools/x-wifi-emw3080b.html).
 
- - This application has been tested with B-U585I-IOT02A (MB1551-U585AI) boards Revision: Rev D01 and can be easily tailored to any other supported device and development board.
+ - Cette application a été testée avec des cartes B-U585I-IOT02A (MB1551-U585AI) Révision : Rev D01 et peut facilement être adaptée à tout autre composant et carte de développement pris en charge.
 
- - This application uses USART1 to display logs, the hyperterminal configuration is as follows:
-      - BaudRate = 115200 baud
-      - Word Length = 8 Bits
-      - Stop Bit = 1
-      - Parity = None
-      - Flow control = None
+ - Cette application utilise USART1 pour afficher les journaux ; la configuration de l'hyperterminal est la suivante :
+      - Vitesse = 115200 bauds
+      - Longueur de mot = 8 bits
+      - Bit d'arrêt = 1
+      - Parité = Aucune
+      - Contrôle de flux = Aucun
 
 
-###  <b>How to use it ?</b>
+###  <b>Comment l'utiliser ?</b>
 
-In order to make the program work, you must do the following :
+Pour faire fonctionner le programme, vous devez procéder comme suit :
 
- - Open your preferred toolchain
+ - Ouvrez votre chaîne d'outils préférée
 
- - On <code> Core/Inc/mx_wifi_conf.h </code> , Edit your Wifi Settings (WIFI_SSID,WIFI_PASSWORD)
+ - Dans <code> Core/Inc/mx_wifi_conf.h </code>, modifiez vos paramètres Wi-Fi (WIFI_SSID,WIFI_PASSWORD)
 
- - Edit the file <code> NetXDuo/App/app_netxduo.h</code> and update the <i>DEFAULT_PORT</i> to connect on.
+ - Modifiez le fichier <code> NetXDuo/App/app_netxduo.h</code> et mettez à jour <i>DEFAULT_PORT</i> avec le port sur lequel se connecter.
 
- - run the [echotool](https://github.com/PavelBansky/EchoTool/releases/tag/v1.5.0.0) utility on a windows console as following:
+ - Lancez l'utilitaire [echotool](https://github.com/PavelBansky/EchoTool/releases/tag/v1.5.0.0) dans une console Windows comme suit :
 
        c:\> .\echotool.exe /p udp /s <UDP_SERVER_PORT> 
            
-       example : c:\> .\echotool.exe /p udp /s 6000 
+       exemple : c:\> .\echotool.exe /p udp /s 6000 
 
-   (PS : Server should be launched before Client start transmission)    
+   (PS : le serveur doit être lancé avant que le client ne commence à émettre)    
 
- - Rebuild all files and load your image into target memory
- - Run the application
+ - Reconstruisez tous les fichiers et chargez votre image dans la mémoire de la cible
+ - Lancez l'application
